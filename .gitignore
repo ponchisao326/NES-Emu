@@ -1,0 +1,18 @@
+# IDE
+.idea/
+
+# CMake Build
+cmake-build-*/
+
+# Compiled Files
+*.o
+*.so
+*.a
+*.out
+*.elf
+
+# Temporal Files
+*~
+*.swp
+
+roms/
