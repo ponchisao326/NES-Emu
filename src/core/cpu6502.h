@@ -13,7 +13,7 @@ typedef union {
         u8 i : 1; // bit 2 - disable irq
         u8 d : 1; // bit 3 - decimal (Ignored by NES)
         u8 b : 1; // bit 4 - break
-        u8 u : 1; // bit 5 - unused, siempre 1
+        u8 u : 1; // bit 5 - unused, always 1
         u8 v : 1; // bit 6 - overflow
         u8 n : 1; // bit 7 - negative
     };
@@ -41,6 +41,7 @@ void cpu_reset(nes_t *nes);
 void cpu_clock(nes_t *nes);
 void cpu_irq  (nes_t *nes);
 void cpu_nmi  (nes_t *nes);
+u8 cpu_fetch(nes_t *nes);
 
 u8 cpu_IMP(nes_t *nes); u8 cpu_IMM(nes_t *nes);
 u8 cpu_ZP0(nes_t *nes); u8 cpu_ZPX(nes_t *nes); u8 cpu_ZPY(nes_t *nes);

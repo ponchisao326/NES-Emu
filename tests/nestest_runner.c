@@ -9,7 +9,11 @@ int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
     static nes_t nes;
+
+    bus_cpu_write(&nes, 0xFFFC, 0x00);
+    bus_cpu_write(&nes, 0xFFFD, 0x80);
     nes_reset(&nes);
+    printf("PC after reset = %04X\n", nes.cpu.pc);
 
     bus_cpu_write(&nes, 0x00FF, 0x42);
     bus_cpu_write(&nes, 0x8000, 0xA9);
@@ -21,7 +25,7 @@ int main(int argc, char **argv) {
     printf("%02X %02X %02X\n", a, b, c);
 
     if (a != 0x42 || b != 0xA9 || c != 0x00) {
-        fprintf(stderr, "Error: expectated 42 A9 00\n");
+        fprintf(stderr, "Error: expected 42 A9 00\n");
         return 1;
     }
     printf("OK\n");

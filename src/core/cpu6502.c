@@ -6,6 +6,12 @@
 #include "core/cpu6502_tables.h"
 #include "core/nes.h"
 
+u8 cpu_fetch(nes_t *nes) {
+    if (cpu_lookup[nes->cpu.opcode].addrmode != cpu_IMP)
+        nes->cpu.fetched = bus_cpu_read(nes, nes->cpu.addr_abs, false);
+    return nes->cpu.fetched;
+}
+
 u8 cpu_IMP(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_IMM(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_ZP0(nes_t *nes) { (void)nes; return 0; }
@@ -80,7 +86,46 @@ u8 cpu_TYA(nes_t *nes) { (void)nes; return 0; }
 // Ilegal opcodes
 u8 cpu_XXX(nes_t *nes) { (void)nes; return 0; }
 
-void cpu_reset(nes_t *nes) { (void)nes; }
-void cpu_clock(nes_t *nes) { (void)nes; }
+void cpu_reset(nes_t *nes) {
+    nes->cpu.addr_abs = 0xFFFC;
+    u16 lo = bus_cpu_read(nes, nes->cpu.addr_abs + 0, false);
+    u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
+    nes->cpu.pc = (hi << 8) | lo;
+
+    nes->cpu.a = 0;
+    nes->cpu.x = 0;
+    nes->cpu.y = 0;
+    nes->cpu.stkp = 0xFD;
+    nes->cpu.status.reg = 0x00;
+    nes->cpu.status.u = 1;
+
+    nes->cpu.addr_rel = 0x0000;
+    nes->cpu.addr_abs = 0x0000;
+    nes->cpu.fetched  = 0x00;
+
+    nes->cpu.cycles = 8;
+}
+
+void cpu_clock(nes_t *nes) {
+    if (nes->cpu.cycles == 0) {
+        nes->cpu.opcode = bus_cpu_read(nes, nes->cpu.pc, false);
+        nes->cpu.pc++;
+
+        nes->cpu.status.u = 1;
+
+        nes->cpu.cycles = cpu_lookup[nes->cpu.opcode].cycles;
+
+        u8 extra1 = cpu_lookup[nes->cpu.opcode].addrmode(nes);
+        u8 extra2 = cpu_lookup[nes->cpu.opcode].operate(nes);
+
+        nes->cpu.cycles += (extra1 & extra2);
+
+        nes->cpu.status.u = 1;
+    }
+
+    nes->system_clock++;
+    nes->cpu.cycles--;
+}
+
 void cpu_irq  (nes_t *nes) { (void)nes; }
 void cpu_nmi  (nes_t *nes) { (void)nes; }
