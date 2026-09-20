@@ -16,3 +16,8 @@ cmake-build-*/
 *.swp
 
 roms/
+
+# Simple crib sheet of bitwise operations
+docs/bitwise_operations_sheet_in_c.md
+
+build/
