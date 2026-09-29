@@ -434,9 +434,6 @@ u8 cpu_SBC(nes_t *nes) {
 
 // End Overflow
 
-u8 cpu_STA(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_STX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_STY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_TAX(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_TAY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_TSX(nes_t *nes) { (void)nes; return 0; }
