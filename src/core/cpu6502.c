@@ -300,19 +300,70 @@ u8 cpu_CPX(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_CPY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_DEC(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_DEX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_DEY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_EOR(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_INC(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_INX(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_INY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_JMP(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_JSR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_LDA(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_LDX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_LDY(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_LSR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_NOP(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_ORA(nes_t *nes) { (void)nes; return 0; }
+
+
+u8 cpu_LDA(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.a = nes->cpu.fetched;
+    nes->cpu.status.z = (nes->cpu.a == 0x00);
+    nes->cpu.status.n = ((nes->cpu.a & 0x80) != 0);
+    return 1;
+}
+
+u8 cpu_LDX(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.x = nes->cpu.fetched;
+    nes->cpu.status.z = (nes->cpu.x == 0x00);
+    nes->cpu.status.n = ((nes->cpu.x & 0x80) != 0);
+    return 1;
+}
+
+u8 cpu_LDY(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.y = nes->cpu.fetched;
+    nes->cpu.status.z = (nes->cpu.y == 0x00);
+    nes->cpu.status.n = ((nes->cpu.y & 0x80) != 0);
+    return 1;
+}
+
+u8 cpu_STA(nes_t *nes) {
+    bus_cpu_write(nes, nes->cpu.addr_abs, nes->cpu.a);
+    return 0;
+}
+
+u8 cpu_STX(nes_t *nes) {
+    bus_cpu_write(nes, nes->cpu.addr_abs, nes->cpu.x);
+    return 0;
+}
+
+u8 cpu_STY(nes_t *nes) {
+    bus_cpu_write(nes, nes->cpu.addr_abs, nes->cpu.y);
+    return 0;
+}
+
+u8 cpu_DEY(nes_t *nes) {
+    nes->cpu.y--;
+    nes->cpu.status.z = (nes->cpu.y == 0x00);
+    nes->cpu.status.n = ((nes->cpu.y & 0x80) != 0);
+    return 0;
+}
+
+u8 cpu_NOP(nes_t *nes) {
+    switch (nes->cpu.opcode) {
+        case 0x1C: case 0x3C: case 0x5C:
+        case 0x7C: case 0xDC: case 0xFC:
+            return 1;
+    }
+    return 0;
+}
 
 u8 cpu_PHA(nes_t *nes) {
     bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.a);
