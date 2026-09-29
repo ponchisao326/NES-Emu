@@ -53,8 +53,47 @@ void cpu_clock(nes_t *nes) {
     nes->cpu.cycles--;
 }
 
-void cpu_irq  (nes_t *nes) { (void)nes; }
-void cpu_nmi  (nes_t *nes) { (void)nes; }
+void cpu_irq(nes_t *nes) {
+    if (nes->cpu.status.i == 0) {
+        bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, (nes->cpu.pc >> 8) & 0x00FF);
+        nes->cpu.stkp--;
+        bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.pc & 0x00FF);
+        nes->cpu.stkp--;
+
+        nes->cpu.status.b = 0;
+        nes->cpu.status.u = 1;
+        nes->cpu.status.i = 1;
+        bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.status.reg);
+        nes->cpu.stkp--;
+
+        nes->cpu.addr_abs = 0xFFFE;
+        u16 lo = bus_cpu_read(nes, nes->cpu.addr_abs + 0, false);
+        u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
+        nes->cpu.pc = (hi << 8) | lo;
+
+        nes->cpu.cycles = 7;
+    }
+}
+
+void cpu_nmi(nes_t *nes) {
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, (nes->cpu.pc >> 8) & 0x00FF);
+    nes->cpu.stkp--;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.pc & 0x00FF);
+    nes->cpu.stkp--;
+
+    nes->cpu.status.b = 0;
+    nes->cpu.status.u = 1;
+    nes->cpu.status.i = 1;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.status.reg);
+    nes->cpu.stkp--;
+
+    nes->cpu.addr_abs = 0xFFFA;
+    u16 lo = bus_cpu_read(nes, nes->cpu.addr_abs + 0, false);
+    u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
+    nes->cpu.pc = (hi << 8) | lo;
+
+    nes->cpu.cycles = 8;
+}
 
 // Addressing Modes
 
