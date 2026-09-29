@@ -12,18 +12,179 @@ u8 cpu_fetch(nes_t *nes) {
     return nes->cpu.fetched;
 }
 
-u8 cpu_IMP(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_IMM(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ZP0(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ZPX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ZPY(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_REL(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ABS(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ABX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ABY(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_IND(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_IZX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_IZY(nes_t *nes) { (void)nes; return 0; }
+void cpu_reset(nes_t *nes) {
+    nes->cpu.addr_abs = 0xFFFC;
+    u16 lo = bus_cpu_read(nes, nes->cpu.addr_abs + 0, false);
+    u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
+    nes->cpu.pc = (hi << 8) | lo;
+
+    nes->cpu.a = 0;
+    nes->cpu.x = 0;
+    nes->cpu.y = 0;
+    nes->cpu.stkp = 0xFD;
+    nes->cpu.status.reg = 0x00;
+    nes->cpu.status.u = 1;
+
+    nes->cpu.addr_rel = 0x0000;
+    nes->cpu.addr_abs = 0x0000;
+    nes->cpu.fetched  = 0x00;
+
+    nes->cpu.cycles = 8;
+}
+
+void cpu_clock(nes_t *nes) {
+    if (nes->cpu.cycles == 0) {
+        nes->cpu.opcode = bus_cpu_read(nes, nes->cpu.pc, false);
+        nes->cpu.pc++;
+
+        nes->cpu.status.u = 1;
+
+        nes->cpu.cycles = cpu_lookup[nes->cpu.opcode].cycles;
+
+        u8 extra1 = cpu_lookup[nes->cpu.opcode].addrmode(nes);
+        u8 extra2 = cpu_lookup[nes->cpu.opcode].operate(nes);
+
+        nes->cpu.cycles += (extra1 & extra2);
+
+        nes->cpu.status.u = 1;
+    }
+
+    nes->system_clock++;
+    nes->cpu.cycles--;
+}
+
+void cpu_irq  (nes_t *nes) { (void)nes; }
+void cpu_nmi  (nes_t *nes) { (void)nes; }
+
+// Addressing Modes
+
+u8 cpu_IMP(nes_t *nes) {
+    nes->cpu.fetched = nes->cpu.a;
+    return 0;
+}
+
+u8 cpu_IMM(nes_t *nes) {
+    nes->cpu.addr_abs = nes->cpu.pc++;
+    return 0;
+}
+
+u8 cpu_ZP0(nes_t *nes) {
+    nes->cpu.addr_abs = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+    nes->cpu.addr_abs &= 0x00FF;
+    return 0;
+}
+
+u8 cpu_ZPX(nes_t *nes) {
+    nes->cpu.addr_abs = (bus_cpu_read(nes, nes->cpu.pc, false) + nes->cpu.x);
+    nes->cpu.pc++;
+    nes->cpu.addr_abs &= 0x00FF;
+    return 0;
+}
+
+u8 cpu_ZPY(nes_t *nes) {
+    nes->cpu.addr_abs = (bus_cpu_read(nes, nes->cpu.pc, false) + nes->cpu.y);
+    nes->cpu.pc++;
+    nes->cpu.addr_abs &= 0x00FF;
+    return 0;
+}
+u8 cpu_REL(nes_t *nes) {
+    nes->cpu.addr_rel = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    // Sign-extend to 16 bits if the offset is negative
+    if (nes->cpu.addr_rel & 0x80)
+        nes->cpu.addr_rel |= 0xFF00;
+
+    return 0;
+}
+
+u8 cpu_ABS(nes_t *nes) {
+    u16 lo = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+    u16 hi = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    nes->cpu.addr_abs = (hi << 8) | lo;
+
+    return 0;
+}
+
+u8 cpu_ABX(nes_t *nes) {
+    u16 lo = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+    u16 hi = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    nes->cpu.addr_abs = (hi << 8) | lo;
+    nes->cpu.addr_abs += nes->cpu.x;
+
+    if ((nes->cpu.addr_abs & 0xFF00) != (hi << 8)) {
+        return 1;
+    }
+    return 0;
+}
+
+u8 cpu_ABY(nes_t *nes) {
+    u16 lo = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+    u16 hi = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    nes->cpu.addr_abs = (hi << 8) | lo;
+    nes->cpu.addr_abs += nes->cpu.y;
+
+    if ((nes->cpu.addr_abs & 0xFF00) != (hi << 8)) {
+        return 1;
+    }
+    return 0;
+}
+
+u8 cpu_IND(nes_t *nes) {
+    u16 ptr_lo = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+    u16 ptr_hi = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    u16 ptr = (ptr_hi << 8) | ptr_lo;
+
+    // Known 6502 bug: pointer at $xxFF reads the high byte from $xx00
+    if (ptr_lo == 0x00FF) {
+        nes->cpu.addr_abs = (bus_cpu_read(nes, ptr & 0xFF00, false) << 8) |  bus_cpu_read(nes, ptr + 0, false);
+    } else {
+        nes->cpu.addr_abs = (bus_cpu_read(nes, ptr + 1, false) << 8) |  bus_cpu_read(nes, ptr + 0, false);
+    }
+
+    return 0;
+}
+
+u8 cpu_IZX(nes_t *nes) {
+    u16 zp_ptr = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    u16 lo = bus_cpu_read(nes, (zp_ptr + (u16)nes->cpu.x) & 0x00FF, false);
+    u16 hi = bus_cpu_read(nes, (zp_ptr + (u16)nes->cpu.x + 1) & 0x00FF, false);
+
+    nes->cpu.addr_abs = (hi << 8) | lo;
+
+    return 0;
+}
+
+u8 cpu_IZY(nes_t *nes) {
+    u16 zp_ptr = bus_cpu_read(nes, nes->cpu.pc, false);
+    nes->cpu.pc++;
+
+    u16 lo = bus_cpu_read(nes, (zp_ptr & 0x00FF), false);
+    u16 hi = bus_cpu_read(nes, ((zp_ptr + 1) & 0x00FF), false);
+
+    nes->cpu.addr_abs = (hi << 8) | lo;
+    nes->cpu.addr_abs += nes->cpu.y;
+
+    if ((nes->cpu.addr_abs & 0xFF00) != (hi << 8)) {
+        return 1;
+    }
+    return 0;
+}
 
 // opcodes
 u8 cpu_ADC(nes_t *nes) { (void)nes; return 0; }
@@ -85,47 +246,3 @@ u8 cpu_TYA(nes_t *nes) { (void)nes; return 0; }
 
 // Ilegal opcodes
 u8 cpu_XXX(nes_t *nes) { (void)nes; return 0; }
-
-void cpu_reset(nes_t *nes) {
-    nes->cpu.addr_abs = 0xFFFC;
-    u16 lo = bus_cpu_read(nes, nes->cpu.addr_abs + 0, false);
-    u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
-    nes->cpu.pc = (hi << 8) | lo;
-
-    nes->cpu.a = 0;
-    nes->cpu.x = 0;
-    nes->cpu.y = 0;
-    nes->cpu.stkp = 0xFD;
-    nes->cpu.status.reg = 0x00;
-    nes->cpu.status.u = 1;
-
-    nes->cpu.addr_rel = 0x0000;
-    nes->cpu.addr_abs = 0x0000;
-    nes->cpu.fetched  = 0x00;
-
-    nes->cpu.cycles = 8;
-}
-
-void cpu_clock(nes_t *nes) {
-    if (nes->cpu.cycles == 0) {
-        nes->cpu.opcode = bus_cpu_read(nes, nes->cpu.pc, false);
-        nes->cpu.pc++;
-
-        nes->cpu.status.u = 1;
-
-        nes->cpu.cycles = cpu_lookup[nes->cpu.opcode].cycles;
-
-        u8 extra1 = cpu_lookup[nes->cpu.opcode].addrmode(nes);
-        u8 extra2 = cpu_lookup[nes->cpu.opcode].operate(nes);
-
-        nes->cpu.cycles += (extra1 & extra2);
-
-        nes->cpu.status.u = 1;
-    }
-
-    nes->system_clock++;
-    nes->cpu.cycles--;
-}
-
-void cpu_irq  (nes_t *nes) { (void)nes; }
-void cpu_nmi  (nes_t *nes) { (void)nes; }
