@@ -333,7 +333,21 @@ u8 cpu_PLA(nes_t *nes) {
 u8 cpu_PLP(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_ROL(nes_t *nes) { (void)nes; return 0; }
 u8 cpu_ROR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_RTI(nes_t *nes) { (void)nes; return 0; }
+
+u8 cpu_RTI(nes_t *nes) {
+    nes->cpu.stkp++;
+    nes->cpu.status.reg = bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false);
+    nes->cpu.status.b = 0;
+    nes->cpu.status.u = 0;
+
+    nes->cpu.stkp++;
+    nes->cpu.pc = (u16)bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false);
+    nes->cpu.stkp++;
+    nes->cpu.pc |= (u16)bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false) << 8;
+
+    return 0;
+}
+
 u8 cpu_RTS(nes_t *nes) { (void)nes; return 0; }
 
 // Overflow
