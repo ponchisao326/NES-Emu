@@ -8,6 +8,8 @@
 #include "core/nes.h"
 #include "core/bus.h"
 #include "core/cpu6502.h"
+#include "core/cartridge.h"
+#include "core/mappers/mapper.h"
 
 static nes_t nes;
 static int failures;
@@ -19,9 +21,29 @@ static void load(u16 addr, const u8 *code, size_t len) {
         bus_cpu_write(&nes, (u16)(addr + i), code[i]);
 }
 
-// Wipes the machine and points the reset vector at $8000.
+// Synthetic cartridge: 16KB PRG & 8KB CHR in memory, mapper 000
+static cartridge_t test_cart;
+static u8 test_prg[16 * 1024];
+static u8 test_chr[8 * 1024];
+
+// Wipes the machine, inserts a blank cartridge and points the reset vector at $8000.
 static void begin(const char *name) {
     memset(&nes, 0, sizeof nes);
+    memset(test_prg, 0, sizeof test_prg);
+    memset(test_chr, 0, sizeof test_chr);
+
+    test_cart.prg_rom = test_prg;
+    test_cart.prg_size = sizeof test_prg;
+    test_cart.chr_rom = test_chr;
+    test_cart.chr_size = sizeof test_chr;
+    test_cart.prg_banks = 1;
+    test_cart.chr_banks = 1;
+    test_cart.mapper_id = 0;
+    test_cart.mirror = MIRROR_HORIZONTAL;
+    mapper000_init(&test_cart.mapper, 1, 1);
+
+    nes_insert_cartridge(&nes, &test_cart);
+
     poke(0xFFFC, 0x00);
     poke(0xFFFD, 0x80);
     printf("\n== %s ==\n", name);

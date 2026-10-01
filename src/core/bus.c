@@ -8,10 +8,16 @@
 #include "core/ppu.h"
 
 u8 bus_cpu_read(nes_t *nes, u16 address, bool readonly) {
-    (void)readonly;
+    u8 data = 0x00;
+
+    if (cart_cpu_read(nes->cart, address, &data))
+        return data;
+
     if (address <= 0x1FFF)
-        return nes->cpu_ram[address & 0x07FF]; // mirrored 2KB until $1FFF
-    if (address >= 0x2000 && address <= 0x3FFF) return ppu_cpu_read(nes, address & 0x0007, readonly);
+        return nes->cpu_ram[address & 0x07FF];
+    if (address >= 0x2000 && address <= 0x3FFF)
+        return ppu_cpu_read(nes, address & 0x0007, readonly);
+
     return 0x00;
 }
 
