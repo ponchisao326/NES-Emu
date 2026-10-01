@@ -6,14 +6,24 @@
 
 typedef struct nes nes_t;
 
+#define PPU_SCREEN_W 256
+#define PPU_SCREEN_H 240
+
 typedef struct {
     u8 name_table[2][1024];
+    u8 pattern_table[2][4096]; // Only used with CHR RAM
     u8 palette[32];
-    
+
+    // Framebuffer: palette index per pixel
+    u8 screen[PPU_SCREEN_H][PPU_SCREEN_W];
+
     s16 scanline;
     s16 cycle;
     bool frame_complete;
 } ppu_t;
+
+// 64 fixed colours from 2C02 in RGB
+extern const u8 ppu_colors[64][3];
 
 void ppu_clock(nes_t *nes);
 void ppu_reset(nes_t *nes);

@@ -49,7 +49,6 @@ void cpu_clock(nes_t *nes) {
         nes->cpu.status.u = 1;
     }
 
-    nes->system_clock++;
     nes->cpu.cycles--;
 }
 

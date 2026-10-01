@@ -10,6 +10,7 @@ void nes_insert_cartridge(nes_t *nes, cartridge_t *cart) {
 
 void nes_reset(nes_t *nes) {
     cpu_reset(nes);
+    ppu_reset(nes);
     nes->system_clock = 0;
 }
 
