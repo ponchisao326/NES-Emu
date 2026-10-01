@@ -3,6 +3,7 @@
 //
 #pragma once
 #include "common/types.h"
+#include "core/mappers/mapper.h"
 
 typedef enum {
     MIRROR_HORIZONTAL,
@@ -21,6 +22,8 @@ typedef struct cartridge {
     u8 chr_banks;
     u8 mapper_id;
     mirror_t mirror;
+
+    mapper_t mapper;
 } cartridge_t;
 
 cartridge_t *cartridge_load(const char *path);

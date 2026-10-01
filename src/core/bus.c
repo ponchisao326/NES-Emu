@@ -2,6 +2,8 @@
 // Created by Victor Gomez Ponce on 20/09/2026.
 //
 #include "core/bus.h"
+
+#include "cartridge.h"
 #include "core/nes.h"
 #include "core/ppu.h"
 
@@ -14,6 +16,9 @@ u8 bus_cpu_read(nes_t *nes, u16 address, bool readonly) {
 }
 
 void bus_cpu_write(nes_t *nes, u16 address, u8 data) {
+    if (cart_cpu_write(nes->cart, address, data))
+        return;
+
     if (address <= 0x1FFF)
         nes->cpu_ram[address & 0x07FF] = data;
     else if (address >= 0x2000 && address <= 0x3FFF)
