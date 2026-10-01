@@ -9,6 +9,50 @@ typedef struct nes nes_t;
 #define PPU_SCREEN_W 256
 #define PPU_SCREEN_H 240
 
+typedef union {
+    struct {
+        u8 unused : 5;
+        u8 sprite_overflow : 1;
+        u8 sprite_zero_hit : 1;
+        u8 vertial_blank : 1;
+    };
+    u8 reg;
+} ppustatus_t;
+
+_Static_assert(sizeof(ppustatus_t) == 1, "PPUSTATUS must be 1 byte long");
+
+typedef union {
+    struct {
+        u8 grayscale : 1;
+        u8 render_background_left : 1;
+        u8 render_sprites_left : 1;
+        u8 render_background : 1;
+        u8 render_sprites : 1;
+        u8 enhance_red : 1;
+        u8 enhance_green : 1;
+        u8 enhance_blue : 1;
+    };
+    u8 reg;
+} ppumask_t;
+
+_Static_assert(sizeof(ppumask_t) == 1, "PPUMASK must be 1 byte long");
+
+typedef union {
+    struct {
+        u8 nametable_x : 1;
+        u8 nametable_y : 1;
+        u8 increment_mode : 1;
+        u8 pattern_sprite : 1;
+        u8 pattern_background : 1;
+        u8 sprite_size : 1;
+        u8 slave_mode : 1; // unused
+        u8 enable_nmi : 1;
+    };
+    u8 reg;
+} ppuctrl_t;
+
+_Static_assert(sizeof(ppuctrl_t) == 1, "PPUCTRL must be 1 byte long");
+
 typedef struct {
     u8 name_table[2][1024];
     u8 pattern_table[2][4096]; // Only used with CHR RAM
@@ -21,6 +65,10 @@ typedef struct {
     s16 scanline;
     s16 cycle;
     bool frame_complete;
+
+    ppustatus_t status;
+    ppumask_t mask;
+    ppuctrl_t ctrl;
 } ppu_t;
 
 // 64 fixed colours from 2C02 in RGB
