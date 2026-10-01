@@ -89,7 +89,12 @@ u8 ppu_read(nes_t *nes, u16 address, bool readonly) {
     } else if (address <= 0x3EFF) {
         // nametables
     } else {
-        // palette
+        address &= 0x001F;
+        if (address == 0x0010) address = 0x0000;
+        if (address == 0x0014) address = 0x0004;
+        if (address == 0x0018) address = 0x0008;
+        if (address == 0x001C) address = 0x000C;
+        data = nes->ppu.palette[address];
     }
 
     return data;
@@ -132,4 +137,30 @@ void ppu_reset(nes_t *nes) {
     nes->ppu.scanline = 0;
     nes->ppu.cycle = 0;
     nes->ppu.frame_complete = false;
+}
+
+u8 ppu_colour_from_palette(nes_t *nes, u8 palette, u8 pixel) {
+    return ppu_read(nes, 0x3F00 + (palette << 2) + pixel, false) & 0x3F;
+}
+
+void ppu_render_pattern_table(nes_t *nes, u8 index, u8 palette) {
+    for (u16 tile_y = 0; tile_y < 16; tile_y++) {
+        for (u16 tile_x = 0; tile_x < 16; tile_x++) {
+            const u16 offset = tile_y * 256 + tile_x * 16;
+
+            for (u16 row = 0; row < 8; row++) {
+                u8 lsb = ppu_read(nes, index * 0x1000 + offset + row + 0x0000, false);
+                u8 msb = ppu_read(nes, index * 0x1000 + offset + row + 0x0008, false);
+
+                for (u16 col = 0; col < 8; col++) {
+                    const u8 pixel = ((msb & 0x01) << 1) | (lsb & 0x01);
+                    lsb >>= 1;
+                    msb >>= 1;
+
+                    nes->ppu.pattern_screen[index][tile_y * 8 + row][tile_x * 8 + (7 - col)] =
+                        ppu_colour_from_palette(nes, palette, pixel);
+                }
+            }
+        }
+    }
 }

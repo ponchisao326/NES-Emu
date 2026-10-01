@@ -16,6 +16,7 @@ typedef struct {
 
     // Framebuffer: palette index per pixel
     u8 screen[PPU_SCREEN_H][PPU_SCREEN_W];
+    u8 pattern_screen[2][128][128];
 
     s16 scanline;
     s16 cycle;
@@ -35,3 +36,6 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data);
 // Self-bus from PPU (patterns, name tables and palette)
 u8 ppu_read(nes_t *nes, u16 address, bool readonly);
 void ppu_write(nes_t *nes, u16 address, u8 data);
+
+u8 ppu_colour_from_palette(nes_t *nes, u8 palette, u8 pixel);
+void ppu_render_pattern_table(nes_t *nes, u8 index, u8 palette);
