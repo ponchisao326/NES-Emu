@@ -111,7 +111,12 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
     } else if (address <= 0x3EFF) {
         // nametables
     } else {
-        // palette
+        address &= 0x001F;
+        if (address == 0x0010) address = 0x0000;
+        if (address == 0x0014) address = 0x0004;
+        if (address == 0x0018) address = 0x0008;
+        if (address == 0x001C) address = 0x000C;
+        nes->ppu.palette[address] = data;
     }
 }
 
