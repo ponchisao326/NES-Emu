@@ -4,17 +4,19 @@
 #pragma once
 #include "common/types.h"
 #include "core/cpu6502.h"
+#include "core/ppu.h"
 
-#define BUS_FLAT_MEM
+typedef struct cartridge cartridge_t;
 
 typedef struct nes {
     cpu6502_t cpu;
-#ifdef BUS_FLAT_MEM
-    u8 flat_ram[64 * 1024];
-#else
+    ppu_t ppu;
+    cartridge_t *cart;
+
     u8 cpu_ram[2048];
-#endif
     u64 system_clock;
 } nes_t;
 
+void nes_insert_cartridge(nes_t *nes, cartridge_t *cart);
 void nes_reset(nes_t *nes);
+void nes_clock(nes_t *nes);
