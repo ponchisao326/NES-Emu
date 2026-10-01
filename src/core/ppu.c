@@ -86,6 +86,7 @@ u8 ppu_read(nes_t *nes, u16 address, bool readonly) {
 
     if (address <= 0x1FFF) {
         // Local pattern tables if cartridge didn't claim it
+        nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF] = data;
     } else if (address <= 0x3EFF) {
         // nametables
     } else {
@@ -108,6 +109,7 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
 
     if (address <= 0x1FFF) {
         // Pattern tables only with CHR RAM
+        nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF] = data;
     } else if (address <= 0x3EFF) {
         // nametables
     } else {

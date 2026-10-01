@@ -94,6 +94,10 @@ void cpu_nmi(nes_t *nes) {
     nes->cpu.cycles = 8;
 }
 
+bool cpu_complete(nes_t *nes) {
+    return nes->cpu.cycles == 0;
+}
+
 // Addressing Modes
 
 u8 cpu_IMP(nes_t *nes) {

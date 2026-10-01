@@ -41,6 +41,7 @@ void cpu_reset(nes_t *nes);
 void cpu_clock(nes_t *nes);
 void cpu_irq  (nes_t *nes);
 void cpu_nmi  (nes_t *nes);
+bool cpu_complete(nes_t *nes);
 u8 cpu_fetch(nes_t *nes);
 
 u8 cpu_IMP(nes_t *nes); u8 cpu_IMM(nes_t *nes);

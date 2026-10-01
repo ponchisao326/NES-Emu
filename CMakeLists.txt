@@ -18,22 +18,21 @@ target_compile_options(nes_core PRIVATE -Wall -Wextra -Wpedantic)
 file(GLOB FRONTEND_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/src/frontend/*.c")
 
-add_executable(nesemu ${FRONTEND_SOURCES})
-target_link_libraries(nesemu PRIVATE nes_core)
-target_compile_options(nesemu PRIVATE -Wall -Wextra)
+if(APPLE)
+    execute_process(COMMAND brew --prefix
+            OUTPUT_VARIABLE HOMEBREW_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+    if(HOMEBREW_PREFIX)
+        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
+    endif()
+endif()
 
-#if(APPLE)
-#    execute_process(COMMAND brew --prefix
-#            OUTPUT_VARIABLE HOMEBREW_PREFIX
-#            OUTPUT_STRIP_TRAILING_WHITESPACE
-#            ERROR_QUIET)
-#    if(HOMEBREW_PREFIX)
-#        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
-#    endif()
-#endif()
-#
-#find_package(SDL2 REQUIRED)
-#target_link_libraries(nesemu PRIVATE SDL2::SDL2)
+find_package(SDL2 REQUIRED)
+
+add_executable(nesemu ${FRONTEND_SOURCES})
+target_link_libraries(nesemu PRIVATE nes_core SDL2::SDL2)
+target_compile_options(nesemu PRIVATE -Wall -Wextra)
 
 # tests
 # Not linked to SDL
