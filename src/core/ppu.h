@@ -14,7 +14,7 @@ typedef union {
         u8 unused : 5;
         u8 sprite_overflow : 1;
         u8 sprite_zero_hit : 1;
-        u8 vertial_blank : 1;
+        u8 vertical_blank : 1;
     };
     u8 reg;
 } ppustatus_t;
@@ -69,6 +69,12 @@ typedef struct {
     ppustatus_t status;
     ppumask_t mask;
     ppuctrl_t ctrl;
+
+    u8 address_latch;
+    u8 data_buffer;
+    u16 vram_address;
+
+    bool nmi;
 } ppu_t;
 
 // 64 fixed colours from 2C02 in RGB

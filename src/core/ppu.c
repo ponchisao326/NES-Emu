@@ -28,7 +28,6 @@ const u8 ppu_colors[64][3] = {
 };
 
 u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
-    (void)nes; (void)readonly;
     u8 data = 0x00;
 
     switch (address) {
@@ -37,6 +36,9 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
         case 0x0001: // Mask
             break;
         case 0x0002: // Status
+            data = (nes->ppu.status.reg & 0xE0) | (nes->ppu.data_buffer & 0x1F);
+            nes->ppu.status.vertical_blank = 0;
+            nes->ppu.address_latch = 0;
             break;
         case 0x0003: // OAM Address
             break;
@@ -47,6 +49,12 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
         case 0x0006: // PPU Address
             break;
         case 0x0007: // PPU Data
+            data = nes->ppu.data_buffer;
+            nes->ppu.data_buffer = ppu_read(nes, nes->ppu.vram_address, readonly);
+
+            if (nes->ppu.vram_address >= 0x3F00) data = nes->ppu.data_buffer;
+
+            nes->ppu.vram_address += nes->ppu.ctrl.increment_mode ? 32 : 1;
             break;
     }
 
@@ -54,12 +62,12 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
 }
 
 void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
-    (void)nes; (void)data;
-
     switch (address) {
         case 0x0000: // Control
+            nes->ppu.ctrl.reg = data;
             break;
         case 0x0001: // Mask
+            nes->ppu.mask.reg = data;
             break;
         case 0x0002: // Status
             break;
@@ -70,8 +78,19 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
         case 0x0005: // Scroll
             break;
         case 0x0006: // PPU Address
+            if (nes->ppu.address_latch == 0) {
+                // First write
+                nes->ppu.vram_address = (nes->ppu.vram_address & 0x00FF) | ((u16)data << 8);
+                nes->ppu.address_latch = 1;
+            } else {
+                // Second write
+                nes->ppu.vram_address = (nes->ppu.vram_address & 0xFF00) | data;
+                nes->ppu.address_latch = 0;
+            }
             break;
         case 0x0007: // PPU Data
+            ppu_write(nes, nes->ppu.vram_address, data);
+            nes->ppu.vram_address += nes->ppu.ctrl.increment_mode ? 32 : 1;
             break;
     }
 }
@@ -123,6 +142,16 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
 }
 
 void ppu_clock(nes_t *nes) {
+    if (nes->ppu.scanline == -1 && nes->ppu.cycle == 1) {
+        nes->ppu.status.vertical_blank = 0;
+    }
+
+    if (nes->ppu.scanline == 241 && nes->ppu.cycle == 1) {
+        nes->ppu.status.vertical_blank = 1;
+        if (nes->ppu.ctrl.enable_nmi)
+            nes->ppu.nmi = true;
+    }
+
     // Testing noise while there's no real render
     s16 x = nes->ppu.cycle - 1;
     s16 y = nes->ppu.scanline;
