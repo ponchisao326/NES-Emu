@@ -65,7 +65,7 @@ static void step_frame(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *rom = (argc > 1) ? argv[1] : "roms/nestest.nes";
+    const char *rom = (argc > 1) ? argv[1] : "roms/Donkey-Kong.nes";
 
     cart = cartridge_load(rom);
     if (!cart) {
@@ -79,6 +79,11 @@ int main(int argc, char **argv) {
 
     nes_insert_cartridge(&nes, cart);
     nes_reset(&nes);
+
+    nes.ppu.palette[0] = 0x0F; // negro
+    nes.ppu.palette[1] = 0x00; // gris oscuro
+    nes.ppu.palette[2] = 0x10; // gris claro
+    nes.ppu.palette[3] = 0x30;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());

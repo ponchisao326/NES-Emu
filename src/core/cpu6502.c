@@ -237,7 +237,21 @@ u8 cpu_AND(nes_t *nes) {
     return 1;
 }
 
-u8 cpu_ASL(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_ASL(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)nes->cpu.fetched << 1;
+
+    nes->cpu.status.c = (temp & 0xFF00) != 0;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    if (cpu_lookup[nes->cpu.opcode].addrmode == cpu_IMP)
+        nes->cpu.a = temp & 0x00FF;
+    else
+        bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+
+    return 0;
+}
 
 static u8 cpu_branch(nes_t *nes, bool take) {
     if (take) {
@@ -260,8 +274,33 @@ u8 cpu_BPL(nes_t *nes) { return cpu_branch(nes, nes->cpu.status.n == 0); }
 u8 cpu_BVS(nes_t *nes) { return cpu_branch(nes, nes->cpu.status.v == 1); }
 u8 cpu_BVC(nes_t *nes) { return cpu_branch(nes, nes->cpu.status.v == 0); }
 
-u8 cpu_BIT(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_BRK(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_BIT(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = nes->cpu.a & nes->cpu.fetched;
+
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (nes->cpu.fetched & 0x80) != 0;
+    nes->cpu.status.v = (nes->cpu.fetched & 0x40) != 0;
+
+    return 0;
+}
+u8 cpu_BRK(nes_t *nes) {
+    nes->cpu.status.i = 1;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, (nes->cpu.pc >> 8) & 0x00FF);
+    nes->cpu.stkp--;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.pc & 0x00FF);
+    nes->cpu.stkp--;
+
+    nes->cpu.status.b = 1;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.status.reg);
+    nes->cpu.stkp--;
+    nes->cpu.status.b = 0;
+
+    nes->cpu.pc = (u16)bus_cpu_read(nes, 0xFFFE, false)
+                | ((u16)bus_cpu_read(nes, 0xFFFF, false) << 8);
+
+    return 0;
+}
 
 u8 cpu_CLC(nes_t *nes) {
     nes->cpu.status.c = false;
@@ -298,19 +337,118 @@ u8 cpu_SEI(nes_t *nes) {
     return 0;
 }
 
-u8 cpu_CMP(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_CPX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_CPY(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_DEC(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_DEX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_EOR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_INC(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_INX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_INY(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_JMP(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_JSR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_LSR(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ORA(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_CMP(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)nes->cpu.a - (u16)nes->cpu.fetched;
+
+    nes->cpu.status.c = nes->cpu.a >= nes->cpu.fetched;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    return 1;
+}
+u8 cpu_CPX(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)nes->cpu.x - (u16)nes->cpu.fetched;
+
+    nes->cpu.status.c = nes->cpu.x >= nes->cpu.fetched;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    return 0;
+}
+u8 cpu_CPY(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)nes->cpu.y - (u16)nes->cpu.fetched;
+
+    nes->cpu.status.c = nes->cpu.y >= nes->cpu.fetched;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    return 0;
+}
+u8 cpu_DEC(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = nes->cpu.fetched - 1;
+
+    bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    return 0;
+}
+u8 cpu_DEX(nes_t *nes) {
+    nes->cpu.x--;
+    nes->cpu.status.z = nes->cpu.x == 0x00;
+    nes->cpu.status.n = (nes->cpu.x & 0x80) != 0;
+    return 0;
+}
+u8 cpu_EOR(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.a ^= nes->cpu.fetched;
+    nes->cpu.status.z = nes->cpu.a == 0x00;
+    nes->cpu.status.n = (nes->cpu.a & 0x80) != 0;
+    return 1;
+}
+u8 cpu_INC(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = nes->cpu.fetched + 1;
+
+    bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    return 0;
+}
+u8 cpu_INX(nes_t *nes) {
+    nes->cpu.x++;
+    nes->cpu.status.z = nes->cpu.x == 0x00;
+    nes->cpu.status.n = (nes->cpu.x & 0x80) != 0;
+    return 0;
+}
+u8 cpu_INY(nes_t *nes) {
+    nes->cpu.y++;
+    nes->cpu.status.z = nes->cpu.y == 0x00;
+    nes->cpu.status.n = (nes->cpu.y & 0x80) != 0;
+    return 0;
+}
+u8 cpu_JMP(nes_t *nes) {
+    nes->cpu.pc = nes->cpu.addr_abs;
+    return 0;
+}
+u8 cpu_JSR(nes_t *nes) {
+    nes->cpu.pc--; // Save last byte address, not the next one
+
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, (nes->cpu.pc >> 8) & 0x00FF);
+    nes->cpu.stkp--;
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.pc & 0x00FF);
+    nes->cpu.stkp--;
+
+    nes->cpu.pc = nes->cpu.addr_abs;
+    return 0;
+}
+u8 cpu_LSR(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.status.c = (nes->cpu.fetched & 0x01) != 0;
+    const u16 temp = nes->cpu.fetched >> 1;
+
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    if (cpu_lookup[nes->cpu.opcode].addrmode == cpu_IMP)
+        nes->cpu.a = temp & 0x00FF;
+    else
+        bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+
+    return 0;
+}
+u8 cpu_ORA(nes_t *nes) {
+    cpu_fetch(nes);
+    nes->cpu.a |= nes->cpu.fetched;
+    nes->cpu.status.z = nes->cpu.a == 0x00;
+    nes->cpu.status.n = (nes->cpu.a & 0x80) != 0;
+    return 1;
+}
 
 
 u8 cpu_LDA(nes_t *nes) {
@@ -374,7 +512,14 @@ u8 cpu_PHA(nes_t *nes) {
     return 0;
 }
 
-u8 cpu_PHP(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_PHP(nes_t *nes) {
+    // Push B and U at 1, real flags doesn't change
+    bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.status.reg | 0x10 | 0x20);
+    nes->cpu.status.b = 0;
+    nes->cpu.status.u = 0;
+    nes->cpu.stkp--;
+    return 0;
+}
 
 u8 cpu_PLA(nes_t *nes) {
     nes->cpu.stkp++;
@@ -384,9 +529,42 @@ u8 cpu_PLA(nes_t *nes) {
     return 0;
 }
 
-u8 cpu_PLP(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ROL(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_ROR(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_PLP(nes_t *nes) {
+    nes->cpu.stkp++;
+    nes->cpu.status.reg = bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false);
+    nes->cpu.status.u = 1;
+    return 0;
+}
+u8 cpu_ROL(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)(nes->cpu.fetched << 1) | nes->cpu.status.c;
+
+    nes->cpu.status.c = (temp & 0xFF00) != 0;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    if (cpu_lookup[nes->cpu.opcode].addrmode == cpu_IMP)
+        nes->cpu.a = temp & 0x00FF;
+    else
+        bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+
+    return 0;
+}
+u8 cpu_ROR(nes_t *nes) {
+    cpu_fetch(nes);
+    const u16 temp = (u16)(nes->cpu.status.c << 7) | (nes->cpu.fetched >> 1);
+
+    nes->cpu.status.c = (nes->cpu.fetched & 0x01) != 0;
+    nes->cpu.status.z = (temp & 0x00FF) == 0;
+    nes->cpu.status.n = (temp & 0x0080) != 0;
+
+    if (cpu_lookup[nes->cpu.opcode].addrmode == cpu_IMP)
+        nes->cpu.a = temp & 0x00FF;
+    else
+        bus_cpu_write(nes, nes->cpu.addr_abs, temp & 0x00FF);
+
+    return 0;
+}
 
 u8 cpu_RTI(nes_t *nes) {
     nes->cpu.stkp++;
@@ -402,7 +580,15 @@ u8 cpu_RTI(nes_t *nes) {
     return 0;
 }
 
-u8 cpu_RTS(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_RTS(nes_t *nes) {
+    nes->cpu.stkp++;
+    nes->cpu.pc = (u16)bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false);
+    nes->cpu.stkp++;
+    nes->cpu.pc |= (u16)bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false) << 8;
+
+    nes->cpu.pc++;
+    return 0;
+}
 
 // Overflow
 u8 cpu_ADC(nes_t *nes) {
@@ -437,12 +623,40 @@ u8 cpu_SBC(nes_t *nes) {
 
 // End Overflow
 
-u8 cpu_TAX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_TAY(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_TSX(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_TXA(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_TXS(nes_t *nes) { (void)nes; return 0; }
-u8 cpu_TYA(nes_t *nes) { (void)nes; return 0; }
+u8 cpu_TAX(nes_t *nes) {
+    nes->cpu.x = nes->cpu.a;
+    nes->cpu.status.z = nes->cpu.x == 0x00;
+    nes->cpu.status.n = (nes->cpu.x & 0x80) != 0;
+    return 0;
+}
+u8 cpu_TAY(nes_t *nes) {
+    nes->cpu.y = nes->cpu.a;
+    nes->cpu.status.z = nes->cpu.y == 0x00;
+    nes->cpu.status.n = (nes->cpu.y & 0x80) != 0;
+    return 0;
+}
+u8 cpu_TSX(nes_t *nes) {
+    nes->cpu.x = nes->cpu.stkp;
+    nes->cpu.status.z = nes->cpu.x == 0x00;
+    nes->cpu.status.n = (nes->cpu.x & 0x80) != 0;
+    return 0;
+}
+u8 cpu_TXA(nes_t *nes) {
+    nes->cpu.a = nes->cpu.x;
+    nes->cpu.status.z = nes->cpu.a == 0x00;
+    nes->cpu.status.n = (nes->cpu.a & 0x80) != 0;
+    return 0;
+}
+u8 cpu_TXS(nes_t *nes) {
+    nes->cpu.stkp = nes->cpu.x;
+    return 0;
+}
+u8 cpu_TYA(nes_t *nes) {
+    nes->cpu.a = nes->cpu.y;
+    nes->cpu.status.z = nes->cpu.a == 0x00;
+    nes->cpu.status.n = (nes->cpu.a & 0x80) != 0;
+    return 0;
+}
 
 // Ilegal opcodes
 u8 cpu_XXX(nes_t *nes) { (void)nes; return 0; }

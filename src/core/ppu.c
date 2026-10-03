@@ -104,10 +104,21 @@ u8 ppu_read(nes_t *nes, u16 address, bool readonly) {
         return data;
 
     if (address <= 0x1FFF) {
-        // Local pattern tables if cartridge didn't claim it
-        nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF] = data;
+        data = nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF];
     } else if (address <= 0x3EFF) {
-        // nametables
+        address &= 0x0FFF;
+
+        if (nes->cart->mirror == MIRROR_VERTICAL) {
+            if (address <= 0x03FF) data = nes->ppu.name_table[0][address & 0x03FF];
+            else if (address <= 0x07FF) data = nes->ppu.name_table[1][address & 0x03FF];
+            else if (address <= 0x0BFF) data = nes->ppu.name_table[0][address & 0x03FF];
+            else data = nes->ppu.name_table[1][address & 0x03FF];
+        } else if (nes->cart->mirror == MIRROR_HORIZONTAL) {
+            if (address <= 0x03FF) data = nes->ppu.name_table[0][address & 0x03FF];
+            else if (address <= 0x07FF) data = nes->ppu.name_table[0][address & 0x03FF];
+            else if (address <= 0x0BFF) data = nes->ppu.name_table[1][address & 0x03FF];
+            else data = nes->ppu.name_table[1][address & 0x03FF];
+        }
     } else {
         address &= 0x001F;
         if (address == 0x0010) address = 0x0000;
@@ -130,7 +141,19 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
         // Pattern tables only with CHR RAM
         nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF] = data;
     } else if (address <= 0x3EFF) {
-        // nametables
+        address &= 0x0FFF;
+
+        if (nes->cart->mirror == MIRROR_VERTICAL) {
+            if (address <= 0x03FF) nes->ppu.name_table[0][address & 0x03FF] = data;
+            else if (address <= 0x07FF) nes->ppu.name_table[1][address & 0x03FF] = data;
+            else if (address <= 0x0BFF) nes->ppu.name_table[0][address & 0x03FF] = data;
+            else nes->ppu.name_table[1][address & 0x03FF] = data;
+        } else if (nes->cart->mirror == MIRROR_HORIZONTAL) {
+            if (address <= 0x03FF) nes->ppu.name_table[0][address & 0x03FF] = data;
+            else if (address <= 0x07FF) nes->ppu.name_table[0][address & 0x03FF] = data;
+            else if (address <= 0x0BFF) nes->ppu.name_table[1][address & 0x03FF] = data;
+            else nes->ppu.name_table[1][address & 0x03FF] = data;
+        }
     } else {
         address &= 0x001F;
         if (address == 0x0010) address = 0x0000;
@@ -153,10 +176,10 @@ void ppu_clock(nes_t *nes) {
     }
 
     // Testing noise while there's no real render
-    s16 x = nes->ppu.cycle - 1;
-    s16 y = nes->ppu.scanline;
-    if (x >= 0 && x < PPU_SCREEN_W && y >= 0 && y < PPU_SCREEN_H)
-        nes->ppu.screen[y][x] = (rand() % 2) ? 0x3F : 0x30;
+    // s16 x = nes->ppu.cycle - 1;
+    // s16 y = nes->ppu.scanline;
+    // if (x >= 0 && x < PPU_SCREEN_W && y >= 0 && y < PPU_SCREEN_H)
+    //     nes->ppu.screen[y][x] = (rand() % 2) ? 0x3F : 0x30;
 
     nes->ppu.cycle++;
     if (nes->ppu.cycle >= 341) {
