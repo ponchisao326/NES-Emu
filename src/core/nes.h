@@ -15,6 +15,9 @@ typedef struct nes {
 
     u8 cpu_ram[2048];
     u64 system_clock;
+
+    u8 controller[2];
+    u8 controller_state[2];
 } nes_t;
 
 void nes_insert_cartridge(nes_t *nes, cartridge_t *cart);

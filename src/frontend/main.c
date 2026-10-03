@@ -130,6 +130,18 @@ int main(int argc, char **argv) {
             }
         }
 
+        // Controller 1: X=A, Z=B, A=Select, S=Start, arrows
+        const u8 *keys = SDL_GetKeyboardState(NULL);
+        nes.controller[0] = 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_X] ? 0x80 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_Z] ? 0x40 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_A] ? 0x20 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_S] ? 0x10 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_UP] ? 0x08 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_DOWN] ? 0x04 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_LEFT] ? 0x02 : 0x00;
+        nes.controller[0] |= keys[SDL_SCANCODE_RIGHT] ? 0x01 : 0x00;
+
         const u64 now = SDL_GetPerformanceCounter();
         const double elapsed = (double)(now - last) / (double)SDL_GetPerformanceFrequency();
         last = now;
