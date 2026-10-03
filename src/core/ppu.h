@@ -53,6 +53,20 @@ typedef union {
 
 _Static_assert(sizeof(ppuctrl_t) == 1, "PPUCTRL must be 1 byte long");
 
+typedef union {
+    struct {
+        u16 coarse_x : 5;
+        u16 coarse_y : 5;
+        u16 nametable_x : 1;
+        u16 nametable_y : 1;
+        u16 fine_y : 3;
+        u16 unused : 1;
+    };
+    u16 reg;
+} loopy_t;
+
+_Static_assert(sizeof(loopy_t) == 2, "loopy register must be 2 bytes long");
+
 typedef struct {
     u8 name_table[2][1024];
     u8 pattern_table[2][4096]; // Only used with CHR RAM
@@ -72,7 +86,20 @@ typedef struct {
 
     u8 address_latch;
     u8 data_buffer;
-    u16 vram_address;
+
+    loopy_t vram_addr;
+    loopy_t tram_addr;
+    u8 fine_x;
+
+    u8 bg_next_tile_id;
+    u8 bg_next_tile_attrib;
+    u8 bg_next_tile_lsb;
+    u8 bg_next_tile_msb;
+
+    u16 bg_shifter_pattern_lo;
+    u16 bg_shifter_pattern_hi;
+    u16 bg_shifter_attrib_lo;
+    u16 bg_shifter_attrib_hi;
 
     bool nmi;
 } ppu_t;

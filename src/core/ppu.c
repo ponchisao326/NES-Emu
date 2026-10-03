@@ -50,11 +50,11 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
             break;
         case 0x0007: // PPU Data
             data = nes->ppu.data_buffer;
-            nes->ppu.data_buffer = ppu_read(nes, nes->ppu.vram_address, readonly);
+            nes->ppu.data_buffer = ppu_read(nes, nes->ppu.vram_addr.reg, readonly);
 
-            if (nes->ppu.vram_address >= 0x3F00) data = nes->ppu.data_buffer;
+            if (nes->ppu.vram_addr.reg >= 0x3F00) data = nes->ppu.data_buffer;
 
-            nes->ppu.vram_address += nes->ppu.ctrl.increment_mode ? 32 : 1;
+            nes->ppu.vram_addr.reg += nes->ppu.ctrl.increment_mode ? 32 : 1;
             break;
     }
 
@@ -65,6 +65,8 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
     switch (address) {
         case 0x0000: // Control
             nes->ppu.ctrl.reg = data;
+            nes->ppu.tram_addr.nametable_x = nes->ppu.ctrl.nametable_x;
+            nes->ppu.tram_addr.nametable_y = nes->ppu.ctrl.nametable_y;
             break;
         case 0x0001: // Mask
             nes->ppu.mask.reg = data;
@@ -76,21 +78,33 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
         case 0x0004: // OAM Data
             break;
         case 0x0005: // Scroll
+            if (nes->ppu.address_latch == 0) {
+                // First write
+                nes->ppu.fine_x = data & 0x07;
+                nes->ppu.tram_addr.coarse_x = data >> 3;
+                nes->ppu.address_latch = 1;
+            } else {
+                // Second write
+                nes->ppu.tram_addr.fine_y = data & 0x07;
+                nes->ppu.tram_addr.coarse_y = data >> 3;
+                nes->ppu.address_latch = 0;
+            }
             break;
         case 0x0006: // PPU Address
             if (nes->ppu.address_latch == 0) {
                 // First write
-                nes->ppu.vram_address = (nes->ppu.vram_address & 0x00FF) | ((u16)data << 8);
+                nes->ppu.tram_addr.reg = (u16)((data & 0x3F) << 8) | (nes->ppu.tram_addr.reg & 0x00FF);
                 nes->ppu.address_latch = 1;
             } else {
                 // Second write
-                nes->ppu.vram_address = (nes->ppu.vram_address & 0xFF00) | data;
+                nes->ppu.tram_addr.reg = (nes->ppu.tram_addr.reg & 0xFF00) | data;
+                nes->ppu.vram_addr = nes->ppu.tram_addr;
                 nes->ppu.address_latch = 0;
             }
             break;
         case 0x0007: // PPU Data
-            ppu_write(nes, nes->ppu.vram_address, data);
-            nes->ppu.vram_address += nes->ppu.ctrl.increment_mode ? 32 : 1;
+            ppu_write(nes, nes->ppu.vram_addr.reg, data);
+            nes->ppu.vram_addr.reg += nes->ppu.ctrl.increment_mode ? 32 : 1;
             break;
     }
 }
@@ -164,9 +178,142 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
     }
 }
 
+// Move the pointer un tile right, crossing nametable if needed
+static void increment_scroll_x(nes_t *nes) {
+    if (!nes->ppu.mask.render_background && !nes->ppu.mask.render_sprites) return;
+
+    if (nes->ppu.vram_addr.coarse_x == 31) {
+        nes->ppu.vram_addr.coarse_x = 0;
+        nes->ppu.vram_addr.nametable_x = !nes->ppu.vram_addr.nametable_x;
+    } else {
+        nes->ppu.vram_addr.coarse_x++;
+    }
+}
+
+// Move pointer one scanline downwards
+static void increment_scroll_y(nes_t *nes) {
+    if (!nes->ppu.mask.render_background && !nes->ppu.mask.render_sprites) return;
+
+    if (nes->ppu.vram_addr.fine_y < 7) {
+        nes->ppu.vram_addr.fine_y++;
+        return;
+    }
+
+    nes->ppu.vram_addr.fine_y = 0;
+
+    if (nes->ppu.vram_addr.coarse_y == 29) {
+        nes->ppu.vram_addr.coarse_y = 0;
+        nes->ppu.vram_addr.nametable_y = !nes->ppu.vram_addr.nametable_y;
+    } else if (nes->ppu.vram_addr.coarse_y == 31) {
+        nes->ppu.vram_addr.coarse_y = 0;
+    } else {
+        nes->ppu.vram_addr.coarse_y++;
+    }
+}
+
+static void transfer_address_x(nes_t *nes) {
+    if (!nes->ppu.mask.render_background && !nes->ppu.mask.render_sprites) return;
+
+    nes->ppu.vram_addr.nametable_x = nes->ppu.tram_addr.nametable_x;
+    nes->ppu.vram_addr.coarse_x = nes->ppu.tram_addr.coarse_x;
+}
+
+static void transfer_address_y(nes_t *nes) {
+    if (!nes->ppu.mask.render_background && !nes->ppu.mask.render_sprites) return;
+
+    nes->ppu.vram_addr.fine_y = nes->ppu.tram_addr.fine_y;
+    nes->ppu.vram_addr.nametable_y = nes->ppu.tram_addr.nametable_y;
+    nes->ppu.vram_addr.coarse_y = nes->ppu.tram_addr.coarse_y;
+}
+
+static void load_background_shifters(nes_t *nes) {
+    nes->ppu.bg_shifter_pattern_lo = (nes->ppu.bg_shifter_pattern_lo & 0xFF00) | nes->ppu.bg_next_tile_lsb;
+    nes->ppu.bg_shifter_pattern_hi = (nes->ppu.bg_shifter_pattern_hi & 0xFF00) | nes->ppu.bg_next_tile_msb;
+
+    nes->ppu.bg_shifter_attrib_lo = (nes->ppu.bg_shifter_attrib_lo & 0xFF00)
+                                  | ((nes->ppu.bg_next_tile_attrib & 0x01) ? 0x00FF : 0x0000);
+    nes->ppu.bg_shifter_attrib_hi = (nes->ppu.bg_shifter_attrib_hi & 0xFF00)
+                                  | ((nes->ppu.bg_next_tile_attrib & 0x02) ? 0x00FF : 0x0000);
+}
+
+static void update_shifters(nes_t *nes) {
+    if (!nes->ppu.mask.render_background) return;
+
+    nes->ppu.bg_shifter_pattern_lo <<= 1;
+    nes->ppu.bg_shifter_pattern_hi <<= 1;
+    nes->ppu.bg_shifter_attrib_lo <<= 1;
+    nes->ppu.bg_shifter_attrib_hi <<= 1;
+}
+
 void ppu_clock(nes_t *nes) {
-    if (nes->ppu.scanline == -1 && nes->ppu.cycle == 1) {
-        nes->ppu.status.vertical_blank = 0;
+    if (nes->ppu.scanline >= -1 && nes->ppu.scanline < 240) {
+        if (nes->ppu.scanline == 0 && nes->ppu.cycle == 0) {
+            nes->ppu.cycle = 1;
+        }
+
+        if (nes->ppu.scanline == -1 && nes->ppu.cycle == 1) {
+            nes->ppu.status.vertical_blank = 0;
+        }
+
+        if ((nes->ppu.cycle >= 2 && nes->ppu.cycle < 258)
+         || (nes->ppu.cycle >= 321 && nes->ppu.cycle < 338)) {
+            update_shifters(nes);
+
+            switch ((nes->ppu.cycle - 1) % 8) {
+                case 0:
+                    load_background_shifters(nes);
+                    nes->ppu.bg_next_tile_id =
+                        ppu_read(nes, 0x2000 | (nes->ppu.vram_addr.reg & 0x0FFF), false);
+                    break;
+
+                case 2:
+                    nes->ppu.bg_next_tile_attrib =
+                        ppu_read(nes, 0x23C0
+                                    | (nes->ppu.vram_addr.nametable_y << 11)
+                                    | (nes->ppu.vram_addr.nametable_x << 10)
+                                    | ((nes->ppu.vram_addr.coarse_y >> 2) << 3)
+                                    | (nes->ppu.vram_addr.coarse_x >> 2), false);
+
+                    if (nes->ppu.vram_addr.coarse_y & 0x02) nes->ppu.bg_next_tile_attrib >>= 4;
+                    if (nes->ppu.vram_addr.coarse_x & 0x02) nes->ppu.bg_next_tile_attrib >>= 2;
+                    nes->ppu.bg_next_tile_attrib &= 0x03;
+                    break;
+
+                case 4:
+                    nes->ppu.bg_next_tile_lsb =
+                        ppu_read(nes, (nes->ppu.ctrl.pattern_background << 12)
+                                    + ((u16)nes->ppu.bg_next_tile_id << 4)
+                                    + nes->ppu.vram_addr.fine_y + 0, false);
+                    break;
+
+                case 6:
+                    nes->ppu.bg_next_tile_msb =
+                        ppu_read(nes, (nes->ppu.ctrl.pattern_background << 12)
+                                    + ((u16)nes->ppu.bg_next_tile_id << 4)
+                                    + nes->ppu.vram_addr.fine_y + 8, false);
+                    break;
+
+                case 7:
+                    increment_scroll_x(nes);
+                    break;
+            }
+        }
+
+        if (nes->ppu.cycle == 256) increment_scroll_y(nes);
+
+        if (nes->ppu.cycle == 257) {
+            load_background_shifters(nes);
+            transfer_address_x(nes);
+        }
+
+        if (nes->ppu.cycle == 338 || nes->ppu.cycle == 340) {
+            nes->ppu.bg_next_tile_id =
+                ppu_read(nes, 0x2000 | (nes->ppu.vram_addr.reg & 0x0FFF), false);
+        }
+
+        if (nes->ppu.scanline == -1 && nes->ppu.cycle >= 280 && nes->ppu.cycle < 305) {
+            transfer_address_y(nes);
+        }
     }
 
     if (nes->ppu.scanline == 241 && nes->ppu.cycle == 1) {
@@ -175,11 +322,25 @@ void ppu_clock(nes_t *nes) {
             nes->ppu.nmi = true;
     }
 
-    // Testing noise while there's no real render
-    // s16 x = nes->ppu.cycle - 1;
-    // s16 y = nes->ppu.scanline;
-    // if (x >= 0 && x < PPU_SCREEN_W && y >= 0 && y < PPU_SCREEN_H)
-    //     nes->ppu.screen[y][x] = (rand() % 2) ? 0x3F : 0x30;
+    u8 bg_pixel = 0x00;
+    u8 bg_palette = 0x00;
+
+    if (nes->ppu.mask.render_background) {
+        const u16 bit_mux = 0x8000 >> nes->ppu.fine_x;
+
+        const u8 p0 = (nes->ppu.bg_shifter_pattern_lo & bit_mux) != 0;
+        const u8 p1 = (nes->ppu.bg_shifter_pattern_hi & bit_mux) != 0;
+        bg_pixel = (u8)((p1 << 1) | p0);
+
+        const u8 a0 = (nes->ppu.bg_shifter_attrib_lo & bit_mux) != 0;
+        const u8 a1 = (nes->ppu.bg_shifter_attrib_hi & bit_mux) != 0;
+        bg_palette = (u8)((a1 << 1) | a0);
+    }
+
+    const s16 x = nes->ppu.cycle - 1;
+    const s16 y = nes->ppu.scanline;
+    if (x >= 0 && x < PPU_SCREEN_W && y >= 0 && y < PPU_SCREEN_H)
+        nes->ppu.screen[y][x] = ppu_colour_from_palette(nes, bg_palette, bg_pixel);
 
     nes->ppu.cycle++;
     if (nes->ppu.cycle >= 341) {
@@ -193,9 +354,27 @@ void ppu_clock(nes_t *nes) {
 }
 
 void ppu_reset(nes_t *nes) {
+    nes->ppu.fine_x = 0x00;
+    nes->ppu.address_latch = 0x00;
+    nes->ppu.data_buffer = 0x00;
     nes->ppu.scanline = 0;
     nes->ppu.cycle = 0;
     nes->ppu.frame_complete = false;
+
+    nes->ppu.bg_next_tile_id = 0x00;
+    nes->ppu.bg_next_tile_attrib = 0x00;
+    nes->ppu.bg_next_tile_lsb = 0x00;
+    nes->ppu.bg_next_tile_msb = 0x00;
+    nes->ppu.bg_shifter_pattern_lo = 0x0000;
+    nes->ppu.bg_shifter_pattern_hi = 0x0000;
+    nes->ppu.bg_shifter_attrib_lo = 0x0000;
+    nes->ppu.bg_shifter_attrib_hi = 0x0000;
+
+    nes->ppu.status.reg = 0x00;
+    nes->ppu.mask.reg = 0x00;
+    nes->ppu.ctrl.reg = 0x00;
+    nes->ppu.vram_addr.reg = 0x0000;
+    nes->ppu.tram_addr.reg = 0x0000;
 }
 
 u8 ppu_colour_from_palette(nes_t *nes, u8 palette, u8 pixel) {
