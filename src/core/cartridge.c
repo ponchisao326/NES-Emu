@@ -19,20 +19,27 @@ cartridge_t *cartridge_load(const char *path) {
     cartridge_t *cart = calloc(1, sizeof(cartridge_t));
     if (!cart) { fclose(f); return NULL; }
 
+    const bool nes2 = (header[7] & 0x0C) == 0x08;
+    const bool dirty_header = (header[12] | header[13] | header[14] | header[15]) != 0;
+    const u8 mapper_hi = (nes2 || !dirty_header) ? (header[7] & 0xF0) : 0x00;
+
     cart->prg_banks = header[4];
     cart->chr_banks = header[5];
-    cart->mapper_id = (header[7] & 0xF0) | (header[6] >> 4);
+    cart->mapper_id = mapper_hi | (header[6] >> 4);
     cart->mirror = (header[6] & 0x01) ? MIRROR_VERTICAL : MIRROR_HORIZONTAL;
 
     if (header[6] & 0x04) fseek(f, 512, SEEK_CUR); // Trainer, gets discarded
 
+    if (cart->prg_banks == 0) goto fail;
+
     cart->prg_size = (size_t)cart->prg_banks * 16384;
     cart->prg_rom = malloc(cart->prg_size);
-    fread(cart->prg_rom, 1, cart->prg_size, f);
+    if (!cart->prg_rom || fread(cart->prg_rom, 1, cart->prg_size, f) != cart->prg_size) goto fail;
 
-    cart->chr_size = (size_t)cart->chr_banks * 8192;
-    cart->chr_rom = malloc(cart->chr_size);
-    fread(cart->chr_rom, 1, cart->chr_size, f);
+    cart->chr_size = (size_t)(cart->chr_banks ? cart->chr_banks : 1) * 8192;
+    cart->chr_rom = calloc(1, cart->chr_size);
+    if (!cart->chr_rom) goto fail;
+    if (cart->chr_banks && fread(cart->chr_rom, 1, cart->chr_size, f) != cart->chr_size) goto fail;
 
     fclose(f);
 
@@ -40,11 +47,15 @@ cartridge_t *cartridge_load(const char *path) {
         case 0: mapper000_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
         default:
             cartridge_free(cart);
-            fclose(f);
             return NULL; // Not supported mapper
     }
 
     return cart;
+
+fail:
+    fclose(f);
+    cartridge_free(cart);
+    return NULL;
 }
 
 void cartridge_free(cartridge_t *cart) {

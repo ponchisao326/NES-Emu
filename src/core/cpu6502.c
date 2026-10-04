@@ -24,6 +24,7 @@ void cpu_reset(nes_t *nes) {
     nes->cpu.stkp = 0xFD;
     nes->cpu.status.reg = 0x00;
     nes->cpu.status.u = 1;
+    nes->cpu.status.i = 1;
 
     nes->cpu.addr_rel = 0x0000;
     nes->cpu.addr_abs = 0x0000;
@@ -91,7 +92,7 @@ void cpu_nmi(nes_t *nes) {
     u16 hi = bus_cpu_read(nes, nes->cpu.addr_abs + 1, false);
     nes->cpu.pc = (hi << 8) | lo;
 
-    nes->cpu.cycles = 8;
+    nes->cpu.cycles = 7;
 }
 
 bool cpu_complete(nes_t *nes) {
@@ -285,7 +286,6 @@ u8 cpu_BIT(nes_t *nes) {
     return 0;
 }
 u8 cpu_BRK(nes_t *nes) {
-    nes->cpu.status.i = 1;
     bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, (nes->cpu.pc >> 8) & 0x00FF);
     nes->cpu.stkp--;
     bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.pc & 0x00FF);
@@ -295,6 +295,7 @@ u8 cpu_BRK(nes_t *nes) {
     bus_cpu_write(nes, 0x0100 + nes->cpu.stkp, nes->cpu.status.reg);
     nes->cpu.stkp--;
     nes->cpu.status.b = 0;
+    nes->cpu.status.i = 1;
 
     nes->cpu.pc = (u16)bus_cpu_read(nes, 0xFFFE, false)
                 | ((u16)bus_cpu_read(nes, 0xFFFF, false) << 8);
@@ -532,6 +533,7 @@ u8 cpu_PLA(nes_t *nes) {
 u8 cpu_PLP(nes_t *nes) {
     nes->cpu.stkp++;
     nes->cpu.status.reg = bus_cpu_read(nes, 0x0100 + nes->cpu.stkp, false);
+    nes->cpu.status.b = 0;
     nes->cpu.status.u = 1;
     return 0;
 }

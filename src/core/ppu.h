@@ -69,7 +69,6 @@ _Static_assert(sizeof(loopy_t) == 2, "loopy register must be 2 bytes long");
 
 typedef struct {
     u8 name_table[2][1024];
-    u8 pattern_table[2][4096]; // Only used with CHR RAM
     u8 palette[32];
 
     // Framebuffer: palette index per pixel

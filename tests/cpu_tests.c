@@ -14,17 +14,20 @@
 static nes_t nes;
 static int failures;
 
-static void poke(u16 addr, u8 v) { bus_cpu_write(&nes, addr, v); }
-
-static void load(u16 addr, const u8 *code, size_t len) {
-    for (size_t i = 0; i < len; i++)
-        bus_cpu_write(&nes, (u16)(addr + i), code[i]);
-}
-
 // Synthetic cartridge: 16KB PRG & 8KB CHR in memory, mapper 000
 static cartridge_t test_cart;
 static u8 test_prg[16 * 1024];
 static u8 test_chr[8 * 1024];
+
+static void poke(u16 addr, u8 v) {
+    if (addr >= 0x8000) test_prg[addr & 0x3FFF] = v;
+    else bus_cpu_write(&nes, addr, v);
+}
+
+static void load(u16 addr, const u8 *code, size_t len) {
+    for (size_t i = 0; i < len; i++)
+        poke((u16)(addr + i), code[i]);
+}
 
 // Wipes the machine, inserts a blank cartridge and points the reset vector at $8000.
 static void begin(const char *name) {

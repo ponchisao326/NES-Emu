@@ -15,10 +15,7 @@ static bool m000_cpu_map_read(mapper_t *m, u16 address, u32 *mapped) {
 }
 
 static bool m000_cpu_map_write(mapper_t *m, u16 address, u32 *mapped) {
-    if (address >= 0x8000) {
-        *mapped = address & (m->prg_banks > 1 ? 0x7FFF : 0x3FFF);
-        return true;
-    }
+    (void)m; (void)address; (void)mapped;
     return false;
 }
 

@@ -37,6 +37,7 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
             break;
         case 0x0002: // Status
             data = (nes->ppu.status.reg & 0xE0) | (nes->ppu.data_buffer & 0x1F);
+            if (readonly) break;
             nes->ppu.status.vertical_blank = 0;
             nes->ppu.address_latch = 0;
             break;
@@ -48,14 +49,22 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
             break;
         case 0x0006: // PPU Address
             break;
-        case 0x0007: // PPU Data
-            data = nes->ppu.data_buffer;
-            nes->ppu.data_buffer = ppu_read(nes, nes->ppu.vram_addr.reg, readonly);
+        case 0x0007: { // PPU Data
+            const bool palette = (nes->ppu.vram_addr.reg & 0x3FFF) >= 0x3F00;
 
-            if (nes->ppu.vram_addr.reg >= 0x3F00) data = nes->ppu.data_buffer;
+            if (readonly) {
+                data = palette ? ppu_read(nes, nes->ppu.vram_addr.reg, true) : nes->ppu.data_buffer;
+                break;
+            }
+
+            data = nes->ppu.data_buffer;
+            nes->ppu.data_buffer = ppu_read(nes, nes->ppu.vram_addr.reg, false);
+
+            if (palette) data = nes->ppu.data_buffer;
 
             nes->ppu.vram_addr.reg += nes->ppu.ctrl.increment_mode ? 32 : 1;
             break;
+        }
     }
 
     return data;
@@ -109,6 +118,31 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
     }
 }
 
+static u8 *nametable_cell(nes_t *nes, u16 address) {
+    const mirror_t mirror = nes->cart ? nes->cart->mirror : MIRROR_HORIZONTAL;
+    u8 table = 0;
+
+    address &= 0x0FFF;
+
+    switch (mirror) {
+        case MIRROR_VERTICAL:     table = (address >> 10) & 0x01; break;
+        case MIRROR_HORIZONTAL:   table = (address >> 11) & 0x01; break;
+        case MIRROR_ONESCREEN_LO: table = 0; break;
+        case MIRROR_ONESCREEN_HI: table = 1; break;
+    }
+
+    return &nes->ppu.name_table[table][address & 0x03FF];
+}
+
+static u8 *palette_cell(nes_t *nes, u16 address) {
+    address &= 0x001F;
+    if (address == 0x0010) address = 0x0000;
+    if (address == 0x0014) address = 0x0004;
+    if (address == 0x0018) address = 0x0008;
+    if (address == 0x001C) address = 0x000C;
+    return &nes->ppu.palette[address];
+}
+
 u8 ppu_read(nes_t *nes, u16 address, bool readonly) {
     (void)readonly;
     u8 data = 0x00;
@@ -117,30 +151,10 @@ u8 ppu_read(nes_t *nes, u16 address, bool readonly) {
     if (nes->cart && cart_ppu_read(nes->cart, address, &data))
         return data;
 
-    if (address <= 0x1FFF) {
-        data = nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF];
-    } else if (address <= 0x3EFF) {
-        address &= 0x0FFF;
-
-        if (nes->cart->mirror == MIRROR_VERTICAL) {
-            if (address <= 0x03FF) data = nes->ppu.name_table[0][address & 0x03FF];
-            else if (address <= 0x07FF) data = nes->ppu.name_table[1][address & 0x03FF];
-            else if (address <= 0x0BFF) data = nes->ppu.name_table[0][address & 0x03FF];
-            else data = nes->ppu.name_table[1][address & 0x03FF];
-        } else if (nes->cart->mirror == MIRROR_HORIZONTAL) {
-            if (address <= 0x03FF) data = nes->ppu.name_table[0][address & 0x03FF];
-            else if (address <= 0x07FF) data = nes->ppu.name_table[0][address & 0x03FF];
-            else if (address <= 0x0BFF) data = nes->ppu.name_table[1][address & 0x03FF];
-            else data = nes->ppu.name_table[1][address & 0x03FF];
-        }
-    } else {
-        address &= 0x001F;
-        if (address == 0x0010) address = 0x0000;
-        if (address == 0x0014) address = 0x0004;
-        if (address == 0x0018) address = 0x0008;
-        if (address == 0x001C) address = 0x000C;
-        data = nes->ppu.palette[address];
-    }
+    if (address >= 0x2000 && address <= 0x3EFF)
+        data = *nametable_cell(nes, address);
+    else if (address >= 0x3F00)
+        data = *palette_cell(nes, address);
 
     return data;
 }
@@ -151,31 +165,10 @@ void ppu_write(nes_t *nes, u16 address, u8 data) {
     if (nes->cart && cart_ppu_write(nes->cart, address, data))
         return;
 
-    if (address <= 0x1FFF) {
-        // Pattern tables only with CHR RAM
-        nes->ppu.pattern_table[(address & 0x1000) >> 12][address & 0x0FFF] = data;
-    } else if (address <= 0x3EFF) {
-        address &= 0x0FFF;
-
-        if (nes->cart->mirror == MIRROR_VERTICAL) {
-            if (address <= 0x03FF) nes->ppu.name_table[0][address & 0x03FF] = data;
-            else if (address <= 0x07FF) nes->ppu.name_table[1][address & 0x03FF] = data;
-            else if (address <= 0x0BFF) nes->ppu.name_table[0][address & 0x03FF] = data;
-            else nes->ppu.name_table[1][address & 0x03FF] = data;
-        } else if (nes->cart->mirror == MIRROR_HORIZONTAL) {
-            if (address <= 0x03FF) nes->ppu.name_table[0][address & 0x03FF] = data;
-            else if (address <= 0x07FF) nes->ppu.name_table[0][address & 0x03FF] = data;
-            else if (address <= 0x0BFF) nes->ppu.name_table[1][address & 0x03FF] = data;
-            else nes->ppu.name_table[1][address & 0x03FF] = data;
-        }
-    } else {
-        address &= 0x001F;
-        if (address == 0x0010) address = 0x0000;
-        if (address == 0x0014) address = 0x0004;
-        if (address == 0x0018) address = 0x0008;
-        if (address == 0x001C) address = 0x000C;
-        nes->ppu.palette[address] = data;
-    }
+    if (address >= 0x2000 && address <= 0x3EFF)
+        *nametable_cell(nes, address) = data;
+    else if (address >= 0x3F00)
+        *palette_cell(nes, address) = data;
 }
 
 // Move the pointer un tile right, crossing nametable if needed
@@ -325,7 +318,8 @@ void ppu_clock(nes_t *nes) {
     u8 bg_pixel = 0x00;
     u8 bg_palette = 0x00;
 
-    if (nes->ppu.mask.render_background) {
+    if (nes->ppu.mask.render_background
+        && (nes->ppu.mask.render_background_left || nes->ppu.cycle > 8)) {
         const u16 bit_mux = 0x8000 >> nes->ppu.fine_x;
 
         const u8 p0 = (nes->ppu.bg_shifter_pattern_lo & bit_mux) != 0;
@@ -335,6 +329,8 @@ void ppu_clock(nes_t *nes) {
         const u8 a0 = (nes->ppu.bg_shifter_attrib_lo & bit_mux) != 0;
         const u8 a1 = (nes->ppu.bg_shifter_attrib_hi & bit_mux) != 0;
         bg_palette = (u8)((a1 << 1) | a0);
+
+        if (bg_pixel == 0x00) bg_palette = 0x00;
     }
 
     const s16 x = nes->ppu.cycle - 1;
@@ -360,6 +356,7 @@ void ppu_reset(nes_t *nes) {
     nes->ppu.scanline = 0;
     nes->ppu.cycle = 0;
     nes->ppu.frame_complete = false;
+    nes->ppu.nmi = false;
 
     nes->ppu.bg_next_tile_id = 0x00;
     nes->ppu.bg_next_tile_attrib = 0x00;

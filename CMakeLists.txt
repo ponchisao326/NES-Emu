@@ -46,5 +46,6 @@ add_executable(cpu_tests tests/cpu_tests.c)
 target_link_libraries(cpu_tests PRIVATE nes_core)
 
 enable_testing()
-add_test(NAME nestest COMMAND nestest_runner)
+add_test(NAME nestest COMMAND nestest_runner "${CMAKE_SOURCE_DIR}/roms/nestest.nes")
+set_tests_properties(nestest PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME cpu     COMMAND cpu_tests)

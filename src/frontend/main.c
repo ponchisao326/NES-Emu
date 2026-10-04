@@ -16,6 +16,8 @@
 
 #define SCALE 3
 #define PANEL_W 320 // Right space to pattern visors
+#define FRAME_TIME (1.0 / 60.0)
+#define MAX_PENDING_FRAMES 4
 
 static nes_t nes;
 static cartridge_t *cart;
@@ -93,7 +95,14 @@ int main(int argc, char **argv) {
     SDL_Window *win = SDL_CreateWindow("Nes_Emu",
                                        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        win_w, win_h, 0);
-    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer *ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
+    if (!ren) {
+        fprintf(stderr, "SDL: %s\n", SDL_GetError());
+        if (win) SDL_DestroyWindow(win);
+        SDL_Quit();
+        cartridge_free(cart);
+        return 1;
+    }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
     SDL_Texture *screen_tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24,
@@ -147,13 +156,16 @@ int main(int argc, char **argv) {
         last = now;
 
         if (emulating) {
-            if (residual > 0.0) {
-                residual -= elapsed;
-            } else {
-                residual += (1.0 / 60.0) - elapsed;
+            residual += elapsed;
+            if (residual > MAX_PENDING_FRAMES * FRAME_TIME) residual = MAX_PENDING_FRAMES * FRAME_TIME;
+
+            while (residual >= FRAME_TIME) {
+                residual -= FRAME_TIME;
                 do { nes_clock(&nes); } while (!nes.ppu.frame_complete);
                 nes.ppu.frame_complete = false;
             }
+        } else {
+            residual = 0.0;
         }
 
         ppu_render_pattern_table(&nes, 0, selected_palette);

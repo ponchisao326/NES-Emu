@@ -16,12 +16,12 @@ void nes_reset(nes_t *nes) {
 void nes_clock(nes_t *nes) {
     ppu_clock(nes);
 
-    if (nes->system_clock % 3 == 0)
+    if (nes->system_clock % 3 == 0) {
+        if (nes->ppu.nmi && cpu_complete(nes)) {
+            nes->ppu.nmi = false;
+            cpu_nmi(nes);
+        }
         cpu_clock(nes);
-
-    if (nes->ppu.nmi) {
-        nes->ppu.nmi = false;
-        cpu_nmi(nes);
     }
 
     nes->system_clock++;
