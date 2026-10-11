@@ -42,6 +42,9 @@ target_link_libraries(nestest_runner PRIVATE nes_core)
 add_executable(nestest_trace tests/nestest_trace.c)
 target_link_libraries(nestest_trace PRIVATE nes_core)
 
+add_executable(cart_info tests/cart_info.c)
+target_link_libraries(cart_info PRIVATE nes_core)
+
 add_executable(cpu_debug tests/cpu_debug.c)
 target_link_libraries(cpu_debug PRIVATE nes_core)
 
