@@ -23,8 +23,9 @@ static int window_bank(cartridge_t *cart, u16 address) {
     return (int)(mapped / 0x4000);
 }
 
-static void window_bytes(nes_t *nes, char *out, size_t size) {
-    snprintf(out, size, "%02X %02X %02X %02X", peek(nes, 0x8000), peek(nes, 0x8001), peek(nes, 0x8002), peek(nes, 0x8003));
+static void window_bytes(nes_t *nes, u16 address, char *out, size_t size) {
+    snprintf(out, size, "%02X %02X %02X %02X", peek(nes, address), peek(nes, (u16)(address + 1)),
+             peek(nes, (u16)(address + 2)), peek(nes, (u16)(address + 3)));
 }
 
 static int operand_bytes(const instruction_t *ins) {
@@ -81,6 +82,7 @@ int main(int argc, char **argv) {
     long frames = 10;
     long limit = 40;
     long delay_ms = 0;
+    u16 shown_at = 0x8000;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc)
@@ -89,11 +91,13 @@ int main(int argc, char **argv) {
             limit = strtol(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--delay") == 0 && i + 1 < argc)
             delay_ms = strtol(argv[++i], NULL, 10);
+        else if (strcmp(argv[i], "--peek") == 0 && i + 1 < argc)
+            shown_at = (u16)strtol(argv[++i], NULL, 16);
         else
             rom = argv[i];
     }
     if (!rom) {
-        fprintf(stderr, "usage: bank_trace rom.nes [--frames N] [--limit N] [--delay MS]\n");
+        fprintf(stderr, "usage: bank_trace rom.nes [--frames N] [--limit N] [--delay MS] [--peek HEX]\n");
         return 2;
     }
 
@@ -118,23 +122,23 @@ int main(int argc, char **argv) {
             if (boundary) step = capture(&nes);
             const int before = window_bank(cart, 0x8000);
             char bytes_before[16];
-            window_bytes(&nes, bytes_before, sizeof bytes_before);
+            window_bytes(&nes, shown_at, bytes_before, sizeof bytes_before);
 
             nes_clock(&nes);
 
             const int after = window_bank(cart, 0x8000);
             if (after != before && printed < limit) {
                 char bytes_after[16];
-                window_bytes(&nes, bytes_after, sizeof bytes_after);
+                window_bytes(&nes, shown_at, bytes_after, sizeof bytes_after);
                 char code[12] = "";
                 for (int i = 0; i < step.length; i++)
                     snprintf(code + strlen(code), sizeof code - strlen(code), i ? " %02X" : "%02X", step.bytes[i]);
                 const int value = written_value(&step);
                 char shown[8] = "?";
                 if (value >= 0) snprintf(shown, sizeof shown, "$%02X", value);
-                printf("frame %3ld  %04X  %-8s  %s $%04X  value=%-3s  bank %d -> %d   $8000: %s -> %s\n",
+                printf("frame %3ld  %04X  %-8s  %s $%04X  value=%-3s  bank %d -> %d   $%04X: %s -> %s\n",
                        frame, step.pc, code, step.ins->name, step.target,
-                       shown, before, after, bytes_before, bytes_after);
+                       shown, before, after, shown_at, bytes_before, bytes_after);
                 fflush(stdout);
                 printed++;
                 if (delay_ms > 0) sleep_ms(delay_ms);
