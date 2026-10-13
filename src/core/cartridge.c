@@ -45,6 +45,12 @@ cartridge_t *cartridge_load(const char *path) {
 
     switch (cart->mapper_id) {
         case 0: mapper000_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
+        case 2:
+            if (!mapper002_init(&cart->mapper, cart->prg_banks, cart->chr_banks)) {
+                cartridge_free(cart);
+                return NULL;
+            }
+            break;
         default:
             cartridge_free(cart);
             return NULL; // Not supported mapper
