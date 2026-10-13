@@ -14,8 +14,8 @@ static bool m000_cpu_map_read(mapper_t *m, u16 address, u32 *mapped) {
     return false;
 }
 
-static bool m000_cpu_map_write(mapper_t *m, u16 address, u32 *mapped) {
-    (void)m; (void)address; (void)mapped;
+static bool m000_cpu_map_write(mapper_t *m, u16 address, u32 *mapped, u8 data) {
+    (void)m; (void)address; (void)mapped; (void)data;
     return false;
 }
 

@@ -60,6 +60,7 @@ fail:
 
 void cartridge_free(cartridge_t *cart) {
     if (!cart) return;
+    free(cart->mapper.state);
     free(cart->prg_rom);
     free(cart->chr_rom);
     free(cart);
@@ -78,7 +79,7 @@ bool cart_cpu_read(cartridge_t *cart, u16 address, u8 *data) {
 bool cart_cpu_write(cartridge_t *cart, u16 address, u8 data) {
     if (!cart) return false;
     u32 mapped = 0;
-    if (cart->mapper.cpu_map_write(&cart->mapper, address, &mapped)) {
+    if (cart->mapper.cpu_map_write(&cart->mapper, address, &mapped, data)) {
         cart->prg_rom[mapped] = data;
         return true;
     }

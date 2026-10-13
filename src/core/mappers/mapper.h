@@ -8,7 +8,7 @@ typedef struct mapper mapper_t;
 
 struct mapper {
     bool (*cpu_map_read) (mapper_t *m, u16 address, u32 *mapped);
-    bool (*cpu_map_write)(mapper_t *m, u16 address, u32 *mapped);
+    bool (*cpu_map_write)(mapper_t *m, u16 address, u32 *mapped, u8 data);
     bool (*ppu_map_read) (mapper_t *m, u16 address, u32 *mapped);
     bool (*ppu_map_write)(mapper_t *m, u16 address, u32 *mapped);
 
