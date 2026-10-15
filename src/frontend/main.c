@@ -66,6 +66,14 @@ static void step_frame(void) {
     nes.ppu.frame_complete = false;
 }
 
+static void dump_oam(void) {
+    for (int i = 0; i < 64; i++) {
+        const oam_entry_t *s = &nes.ppu.oam[i];
+        printf("%02X: (%3u, %3u) ID: %02X AT: %02X\n", i, s->x, s->y, s->id, s->attribute);
+    }
+    printf("\n");
+}
+
 int main(int argc, char **argv) {
     const char *rom = (argc > 1) ? argv[1] : "roms/Donkey-Kong.nes";
 
@@ -134,6 +142,7 @@ int main(int argc, char **argv) {
                     case SDLK_c: if (!emulating) step_instruction(); break;
                     case SDLK_f: if (!emulating) step_frame(); break;
                     case SDLK_p: selected_palette = (selected_palette + 1) & 0x07; break;
+                    case SDLK_o: dump_oam(); break;
                     default: break;
                 }
             }
