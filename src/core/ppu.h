@@ -68,6 +68,15 @@ typedef union {
 _Static_assert(sizeof(loopy_t) == 2, "loopy register must be 2 bytes long");
 
 typedef struct {
+    u8 y;
+    u8 id;
+    u8 attribute;
+    u8 x;
+} oam_entry_t;
+
+_Static_assert(sizeof(oam_entry_t) == 4, "OAM entry must be 4 bytes long");
+
+typedef struct {
     u8 name_table[2][1024];
     u8 palette[32];
 
@@ -101,6 +110,12 @@ typedef struct {
     u16 bg_shifter_attrib_hi;
 
     bool nmi;
+
+    union {
+        oam_entry_t oam[64];
+        u8 oam_bytes[256];
+    };
+    u8 oam_addr;
 } ppu_t;
 
 // 64 fixed colours from 2C02 in RGB

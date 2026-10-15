@@ -18,6 +18,12 @@ typedef struct nes {
 
     u8 controller[2];
     u8 controller_state[2];
+
+    u8 dma_page;
+    u8 dma_addr;
+    u8 dma_data;
+    bool dma_dummy;
+    bool dma_transfer;
 } nes_t;
 
 void nes_insert_cartridge(nes_t *nes, cartridge_t *cart);

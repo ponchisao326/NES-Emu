@@ -44,6 +44,7 @@ u8 ppu_cpu_read(nes_t *nes, u16 address, bool readonly) {
         case 0x0003: // OAM Address
             break;
         case 0x0004: // OAM Data
+            data = nes->ppu.oam_bytes[nes->ppu.oam_addr];
             break;
         case 0x0005: // Scroll
             break;
@@ -83,8 +84,10 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
         case 0x0002: // Status
             break;
         case 0x0003: // OAM Address
+            nes->ppu.oam_addr = data;
             break;
         case 0x0004: // OAM Data
+            nes->ppu.oam_bytes[nes->ppu.oam_addr++] = data;
             break;
         case 0x0005: // Scroll
             if (nes->ppu.address_latch == 0) {

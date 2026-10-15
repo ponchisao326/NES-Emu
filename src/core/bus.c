@@ -35,6 +35,11 @@ void bus_cpu_write(nes_t *nes, u16 address, u8 data) {
         nes->cpu_ram[address & 0x07FF] = data;
     else if (address >= 0x2000 && address <= 0x3FFF)
         ppu_cpu_write(nes, address & 0x0007, data);
+    else if (address == 0x4014) {
+        nes->dma_page = data;
+        nes->dma_addr = 0x00;
+        nes->dma_transfer = true;
+    }
     else if (address == 0x4016) {
         // Freezes button states to start reading it
         nes->controller_state[0] = nes->controller[0];
