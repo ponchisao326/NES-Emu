@@ -116,6 +116,14 @@ typedef struct {
         u8 oam_bytes[256];
     };
     u8 oam_addr;
+
+    oam_entry_t sprite_scanline[8];
+    u8 sprite_count;
+    u8 sprite_shifter_pattern_lo[8];
+    u8 sprite_shifter_pattern_hi[8];
+
+    bool sprite_zero_hit_possible;
+    bool sprite_zero_being_rendered;
 } ppu_t;
 
 // 64 fixed colours from 2C02 in RGB

@@ -2,6 +2,7 @@
 // Created by Victor Gomez Ponce on 01/10/2026.
 //
 #include <stdlib.h>
+#include <string.h>
 
 #include "core/ppu.h"
 
@@ -233,12 +234,57 @@ static void load_background_shifters(nes_t *nes) {
 }
 
 static void update_shifters(nes_t *nes) {
-    if (!nes->ppu.mask.render_background) return;
+    if (nes->ppu.mask.render_background) {
+        nes->ppu.bg_shifter_pattern_lo <<= 1;
+        nes->ppu.bg_shifter_pattern_hi <<= 1;
+        nes->ppu.bg_shifter_attrib_lo <<= 1;
+        nes->ppu.bg_shifter_attrib_hi <<= 1;
+    }
 
-    nes->ppu.bg_shifter_pattern_lo <<= 1;
-    nes->ppu.bg_shifter_pattern_hi <<= 1;
-    nes->ppu.bg_shifter_attrib_lo <<= 1;
-    nes->ppu.bg_shifter_attrib_hi <<= 1;
+    if (nes->ppu.mask.render_sprites && nes->ppu.cycle >= 1 && nes->ppu.cycle < 258) {
+        for (u8 i = 0; i < nes->ppu.sprite_count; i++) {
+            if (nes->ppu.sprite_scanline[i].x > 0) {
+                nes->ppu.sprite_scanline[i].x--;
+            } else {
+                nes->ppu.sprite_shifter_pattern_lo[i] <<= 1;
+                nes->ppu.sprite_shifter_pattern_hi[i] <<= 1;
+            }
+        }
+    }
+}
+
+static u8 flip_byte(u8 b) {
+    b = (u8)((b & 0xF0) >> 4 | (b & 0x0F) << 4);
+    b = (u8)((b & 0xCC) >> 2 | (b & 0x33) << 2);
+    b = (u8)((b & 0xAA) >> 1 | (b & 0x55) << 1);
+    return b;
+}
+
+static void load_sprite_shifters(nes_t *nes) {
+    for (u8 i = 0; i < nes->ppu.sprite_count; i++) {
+        const oam_entry_t *s = &nes->ppu.sprite_scanline[i];
+        u8 row = (u8)(nes->ppu.scanline - s->y);
+        u16 address;
+
+        if (!nes->ppu.ctrl.sprite_size) {
+            if (s->attribute & 0x80) row = (u8)(7 - row);
+            address = (u16)((nes->ppu.ctrl.pattern_sprite << 12) | (s->id << 4) | row);
+        } else {
+            if (s->attribute & 0x80) row = (u8)(15 - row);
+            address = (u16)(((s->id & 0x01) << 12) | (((s->id & 0xFE) + (row >> 3)) << 4) | (row & 0x07));
+        }
+
+        u8 lo = ppu_read(nes, address, false);
+        u8 hi = ppu_read(nes, (u16)(address + 8), false);
+
+        if (s->attribute & 0x40) {
+            lo = flip_byte(lo);
+            hi = flip_byte(hi);
+        }
+
+        nes->ppu.sprite_shifter_pattern_lo[i] = lo;
+        nes->ppu.sprite_shifter_pattern_hi[i] = hi;
+    }
 }
 
 void ppu_clock(nes_t *nes) {
@@ -249,6 +295,10 @@ void ppu_clock(nes_t *nes) {
 
         if (nes->ppu.scanline == -1 && nes->ppu.cycle == 1) {
             nes->ppu.status.vertical_blank = 0;
+            nes->ppu.status.sprite_overflow = 0;
+            nes->ppu.status.sprite_zero_hit = 0;
+            memset(nes->ppu.sprite_shifter_pattern_lo, 0, sizeof nes->ppu.sprite_shifter_pattern_lo);
+            memset(nes->ppu.sprite_shifter_pattern_hi, 0, sizeof nes->ppu.sprite_shifter_pattern_hi);
         }
 
         if ((nes->ppu.cycle >= 2 && nes->ppu.cycle < 258)
@@ -310,6 +360,28 @@ void ppu_clock(nes_t *nes) {
         if (nes->ppu.scanline == -1 && nes->ppu.cycle >= 280 && nes->ppu.cycle < 305) {
             transfer_address_y(nes);
         }
+
+        if (nes->ppu.cycle == 257 && nes->ppu.scanline >= 0) {
+            memset(nes->ppu.sprite_scanline, 0xFF, sizeof nes->ppu.sprite_scanline);
+            memset(nes->ppu.sprite_shifter_pattern_lo, 0, sizeof nes->ppu.sprite_shifter_pattern_lo);
+            memset(nes->ppu.sprite_shifter_pattern_hi, 0, sizeof nes->ppu.sprite_shifter_pattern_hi);
+            nes->ppu.sprite_count = 0;
+            nes->ppu.sprite_zero_hit_possible = false;
+
+            const s16 height = nes->ppu.ctrl.sprite_size ? 16 : 8;
+            for (u8 i = 0; i < 64; i++) {
+                const s16 diff = nes->ppu.scanline - (s16)nes->ppu.oam[i].y;
+                if (diff < 0 || diff >= height) continue;
+                if (nes->ppu.sprite_count == 8) {
+                    nes->ppu.status.sprite_overflow = 1;
+                    break;
+                }
+                if (i == 0) nes->ppu.sprite_zero_hit_possible = true;
+                nes->ppu.sprite_scanline[nes->ppu.sprite_count++] = nes->ppu.oam[i];
+            }
+        }
+
+        if (nes->ppu.cycle == 340) load_sprite_shifters(nes);
     }
 
     if (nes->ppu.scanline == 241 && nes->ppu.cycle == 1) {
@@ -336,10 +408,56 @@ void ppu_clock(nes_t *nes) {
         if (bg_pixel == 0x00) bg_palette = 0x00;
     }
 
+    u8 fg_pixel = 0x00;
+    u8 fg_palette = 0x00;
+    bool fg_priority = false;
+
+    if (nes->ppu.mask.render_sprites
+        && (nes->ppu.mask.render_sprites_left || nes->ppu.cycle > 8)) {
+        nes->ppu.sprite_zero_being_rendered = false;
+
+        for (u8 i = 0; i < nes->ppu.sprite_count; i++) {
+            if (nes->ppu.sprite_scanline[i].x != 0) continue;
+
+            const u8 p0 = (nes->ppu.sprite_shifter_pattern_lo[i] & 0x80) != 0;
+            const u8 p1 = (nes->ppu.sprite_shifter_pattern_hi[i] & 0x80) != 0;
+            fg_pixel = (u8)((p1 << 1) | p0);
+            fg_palette = (u8)((nes->ppu.sprite_scanline[i].attribute & 0x03) + 0x04);
+            fg_priority = (nes->ppu.sprite_scanline[i].attribute & 0x20) == 0;
+
+            if (fg_pixel != 0) {
+                if (i == 0) nes->ppu.sprite_zero_being_rendered = true;
+                break;
+            }
+        }
+    }
+
+    u8 pixel = 0x00;
+    u8 palette = 0x00;
+
+    if (bg_pixel == 0 && fg_pixel != 0) {
+        pixel = fg_pixel;
+        palette = fg_palette;
+    } else if (bg_pixel != 0 && fg_pixel == 0) {
+        pixel = bg_pixel;
+        palette = bg_palette;
+    } else if (bg_pixel != 0 && fg_pixel != 0) {
+        pixel = fg_priority ? fg_pixel : bg_pixel;
+        palette = fg_priority ? fg_palette : bg_palette;
+
+        if (nes->ppu.sprite_zero_hit_possible && nes->ppu.sprite_zero_being_rendered
+            && nes->ppu.mask.render_background && nes->ppu.mask.render_sprites) {
+            const bool clip_left = !(nes->ppu.mask.render_background_left && nes->ppu.mask.render_sprites_left);
+            const s16 px = nes->ppu.cycle - 1;
+            if (px >= (clip_left ? 8 : 0) && px < 255)
+                nes->ppu.status.sprite_zero_hit = 1;
+        }
+    }
+
     const s16 x = nes->ppu.cycle - 1;
     const s16 y = nes->ppu.scanline;
     if (x >= 0 && x < PPU_SCREEN_W && y >= 0 && y < PPU_SCREEN_H)
-        nes->ppu.screen[y][x] = ppu_colour_from_palette(nes, bg_palette, bg_pixel);
+        nes->ppu.screen[y][x] = ppu_colour_from_palette(nes, palette, pixel);
 
     nes->ppu.cycle++;
     if (nes->ppu.cycle >= 341) {
