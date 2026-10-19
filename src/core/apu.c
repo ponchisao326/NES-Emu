@@ -30,8 +30,25 @@ static const u16 dmc_table[16] = {
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
 };
 
+static float pulse_mix[31];
+static float tnd_mix[203];
+static bool mix_ready = false;
+
+static void mix_tables(void) {
+    pulse_mix[0] = 0.0f;
+    for (int n = 1; n < 31; n++) pulse_mix[n] = (float)(95.52 / (8128.0 / n + 100.0));
+    tnd_mix[0] = 0.0f;
+    for (int n = 1; n < 203; n++) tnd_mix[n] = (float)(163.67 / (24329.0 / n + 100.0));
+    mix_ready = true;
+}
+
 void apu_reset(nes_t *nes) {
+    if (!mix_ready) mix_tables();
+    const u8 mute = nes->apu.mute;
+    const double rate = nes->apu.sample_rate;
     memset(&nes->apu, 0, sizeof nes->apu);
+    nes->apu.mute = mute;
+    apu_set_sample_rate(nes, (u32)rate);
     nes->apu.pulse[0].ones_complement = true;
     nes->apu.noise.shift = 1;
     nes->apu.noise.period = noise_table[0];
@@ -320,6 +337,78 @@ static void frame_counter_clock(apu_t *apu) {
     }
 }
 
+static const double TAU = 6.283185307179586;
+
+static double high_pass_a(double cutoff, double rate) {
+    const double rc = 1.0 / (TAU * cutoff);
+    return rc / (rc + 1.0 / rate);
+}
+
+static double low_pass_a(double cutoff, double rate) {
+    const double rc = 1.0 / (TAU * cutoff);
+    const double dt = 1.0 / rate;
+    return dt / (rc + dt);
+}
+
+void apu_set_sample_rate(nes_t *nes, u32 rate) {
+    apu_t *apu = &nes->apu;
+    apu->sample_rate = rate;
+    apu->sample_clock = 0.0;
+    apu->sum = 0.0;
+    apu->sum_count = 0;
+    apu->sample_count = 0;
+    apu->hp90_x = apu->hp90_y = apu->hp440_x = apu->hp440_y = apu->lp14k_y = 0.0;
+    if (rate == 0) return;
+    apu->hp90_a = high_pass_a(90.0, rate);
+    apu->hp440_a = high_pass_a(440.0, rate);
+    apu->lp14k_a = low_pass_a(14000.0, rate);
+}
+
+float apu_mix(const apu_t *apu) {
+    const u8 p1 = (apu->mute & APU_PULSE1) ? 0 : apu->out_pulse[0];
+    const u8 p2 = (apu->mute & APU_PULSE2) ? 0 : apu->out_pulse[1];
+    const u8 t = (apu->mute & APU_TRIANGLE) ? 0 : apu->out_triangle;
+    const u8 n = (apu->mute & APU_NOISE) ? 0 : apu->out_noise;
+    const u8 d = (apu->mute & APU_DMC) ? 0 : apu->out_dmc;
+    return pulse_mix[p1 + p2] + tnd_mix[3 * t + 2 * n + d];
+}
+
+static void push_sample(apu_t *apu, double x) {
+    const double hp90 = apu->hp90_a * (apu->hp90_y + x - apu->hp90_x);
+    apu->hp90_x = x;
+    apu->hp90_y = hp90;
+
+    const double hp440 = apu->hp440_a * (apu->hp440_y + hp90 - apu->hp440_x);
+    apu->hp440_x = hp90;
+    apu->hp440_y = hp440;
+
+    apu->lp14k_y += apu->lp14k_a * (hp440 - apu->lp14k_y);
+
+    if (apu->sample_count < APU_BUFFER_SIZE) apu->samples[apu->sample_count++] = (float)apu->lp14k_y;
+}
+
+static void resample(apu_t *apu) {
+    if (apu->sample_rate == 0.0) return;
+    apu->sum += apu_mix(apu);
+    apu->sum_count++;
+    apu->sample_clock += apu->sample_rate;
+    if (apu->sample_clock >= APU_CPU_RATE) {
+        apu->sample_clock -= APU_CPU_RATE;
+        push_sample(apu, apu->sum / apu->sum_count);
+        apu->sum = 0.0;
+        apu->sum_count = 0;
+    }
+}
+
+u32 apu_take_samples(nes_t *nes, float *out, u32 max) {
+    apu_t *apu = &nes->apu;
+    const u32 n = apu->sample_count < max ? apu->sample_count : max;
+    memcpy(out, apu->samples, n * sizeof(float));
+    memmove(apu->samples, apu->samples + n, (apu->sample_count - n) * sizeof(float));
+    apu->sample_count -= n;
+    return n;
+}
+
 void apu_clock(nes_t *nes) {
     apu_t *apu = &nes->apu;
     frame_counter_clock(apu);
@@ -355,6 +444,7 @@ void apu_clock(nes_t *nes) {
     apu->out_noise = noise_output(&apu->noise);
     apu->out_dmc = apu->dmc.level;
 
+    resample(apu);
     apu->cycle++;
 }
 

@@ -3,6 +3,17 @@
 
 typedef struct nes nes_t;
 
+#define APU_CPU_RATE 1789773.0
+#define APU_BUFFER_SIZE 8192
+
+enum {
+    APU_PULSE1 = 0x01,
+    APU_PULSE2 = 0x02,
+    APU_TRIANGLE = 0x04,
+    APU_NOISE = 0x08,
+    APU_DMC = 0x10
+};
+
 typedef struct {
     bool start;
     bool loop;
@@ -91,6 +102,17 @@ typedef struct {
     u8 out_triangle;
     u8 out_noise;
     u8 out_dmc;
+
+    u8 mute;
+    double sample_rate;
+    double sample_clock;
+    double sum;
+    u32 sum_count;
+    double hp90_a, hp90_x, hp90_y;
+    double hp440_a, hp440_x, hp440_y;
+    double lp14k_a, lp14k_y;
+    float samples[APU_BUFFER_SIZE];
+    u32 sample_count;
 } apu_t;
 
 void apu_reset(nes_t *nes);
@@ -99,3 +121,6 @@ void apu_cpu_write(nes_t *nes, u16 address, u8 data);
 u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly);
 bool apu_irq(nes_t *nes);
 bool apu_cpu_stalled(nes_t *nes);
+void apu_set_sample_rate(nes_t *nes, u32 rate);
+u32 apu_take_samples(nes_t *nes, float *out, u32 max);
+float apu_mix(const apu_t *apu);
