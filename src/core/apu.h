@@ -4,6 +4,38 @@
 typedef struct nes nes_t;
 
 typedef struct {
+    bool start;
+    bool loop;
+    bool constant;
+    u8 volume;
+    u8 divider;
+    u8 decay;
+} apu_envelope_t;
+
+typedef struct {
+    bool enabled;
+    u8 counter;
+} apu_length_t;
+
+typedef struct {
+    apu_envelope_t envelope;
+    apu_length_t length;
+    u8 duty;
+    u8 step;
+    u16 period;
+    u16 timer;
+    bool sweep_enabled;
+    bool sweep_negate;
+    bool sweep_reload;
+    u8 sweep_period;
+    u8 sweep_shift;
+    u8 sweep_divider;
+    bool ones_complement;
+} apu_pulse_t;
+
+typedef struct {
+    apu_pulse_t pulse[2];
+
     u64 cycle;
     u32 frame_step;
     bool frame_mode;
@@ -12,6 +44,8 @@ typedef struct {
     u8 frame_reset_delay;
     bool quarter_frame;
     bool half_frame;
+
+    u8 out_pulse[2];
 } apu_t;
 
 void apu_reset(nes_t *nes);

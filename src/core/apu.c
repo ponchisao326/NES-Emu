@@ -4,8 +4,120 @@
 
 #include "core/nes.h"
 
+static const u8 length_table[32] = {
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
+    12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
+};
+
+static const u8 duty_table[4][8] = {
+    { 0, 0, 0, 0, 0, 0, 0, 1 },
+    { 0, 0, 0, 0, 0, 0, 1, 1 },
+    { 0, 0, 0, 0, 1, 1, 1, 1 },
+    { 1, 1, 1, 1, 1, 1, 0, 0 }
+};
+
 void apu_reset(nes_t *nes) {
     memset(&nes->apu, 0, sizeof nes->apu);
+    nes->apu.pulse[0].ones_complement = true;
+}
+
+static void envelope_write(apu_envelope_t *e, u8 data) {
+    e->loop = (data & 0x20) != 0;
+    e->constant = (data & 0x10) != 0;
+    e->volume = data & 0x0F;
+}
+
+static void envelope_clock(apu_envelope_t *e) {
+    if (e->start) {
+        e->start = false;
+        e->decay = 15;
+        e->divider = e->volume;
+    } else if (e->divider == 0) {
+        e->divider = e->volume;
+        if (e->decay > 0) e->decay--;
+        else if (e->loop) e->decay = 15;
+    } else {
+        e->divider--;
+    }
+}
+
+static u8 envelope_output(const apu_envelope_t *e) {
+    return e->constant ? e->volume : e->decay;
+}
+
+static void length_load(apu_length_t *l, u8 data) {
+    if (l->enabled) l->counter = length_table[data >> 3];
+}
+
+static void length_enable(apu_length_t *l, bool enabled) {
+    l->enabled = enabled;
+    if (!enabled) l->counter = 0;
+}
+
+static void length_clock(apu_length_t *l, bool halt) {
+    if (!halt && l->counter > 0) l->counter--;
+}
+
+static u16 sweep_target(const apu_pulse_t *p) {
+    const u16 change = p->period >> p->sweep_shift;
+    if (!p->sweep_negate) return (u16)(p->period + change);
+    const u16 sub = (u16)(change + (p->ones_complement ? 1 : 0));
+    return sub > p->period ? 0 : (u16)(p->period - sub);
+}
+
+static bool pulse_muted(const apu_pulse_t *p) {
+    return p->period < 8 || sweep_target(p) > 0x7FF;
+}
+
+static void sweep_clock(apu_pulse_t *p) {
+    if (p->sweep_divider == 0 && p->sweep_enabled && p->sweep_shift > 0 && !pulse_muted(p))
+        p->period = sweep_target(p);
+    if (p->sweep_divider == 0 || p->sweep_reload) {
+        p->sweep_divider = p->sweep_period;
+        p->sweep_reload = false;
+    } else {
+        p->sweep_divider--;
+    }
+}
+
+static void pulse_timer_clock(apu_pulse_t *p) {
+    if (p->timer == 0) {
+        p->timer = p->period;
+        p->step = (u8)((p->step - 1) & 0x07);
+    } else {
+        p->timer--;
+    }
+}
+
+static u8 pulse_output(const apu_pulse_t *p) {
+    if (p->length.counter == 0 || pulse_muted(p) || !duty_table[p->duty][p->step]) return 0;
+    return envelope_output(&p->envelope);
+}
+
+static void pulse_write(apu_pulse_t *p, u16 reg, u8 data) {
+    switch (reg) {
+        case 0:
+            p->duty = data >> 6;
+            envelope_write(&p->envelope, data);
+            break;
+        case 1:
+            p->sweep_enabled = (data & 0x80) != 0;
+            p->sweep_period = (data >> 4) & 0x07;
+            p->sweep_negate = (data & 0x08) != 0;
+            p->sweep_shift = data & 0x07;
+            p->sweep_reload = true;
+            break;
+        case 2:
+            p->period = (u16)((p->period & 0x0700) | data);
+            break;
+        case 3:
+            p->period = (u16)((p->period & 0x00FF) | ((data & 0x07) << 8));
+            length_load(&p->length, data);
+            p->step = 0;
+            p->envelope.start = true;
+            break;
+        default: break;
+    }
 }
 
 static void frame_counter_clock(apu_t *apu) {
@@ -55,12 +167,40 @@ static void frame_counter_clock(apu_t *apu) {
 void apu_clock(nes_t *nes) {
     apu_t *apu = &nes->apu;
     frame_counter_clock(apu);
+
+    if (apu->quarter_frame) {
+        envelope_clock(&apu->pulse[0].envelope);
+        envelope_clock(&apu->pulse[1].envelope);
+    }
+    if (apu->half_frame) {
+        for (int i = 0; i < 2; i++) {
+            length_clock(&apu->pulse[i].length, apu->pulse[i].envelope.loop);
+            sweep_clock(&apu->pulse[i]);
+        }
+    }
+
+    if (apu->cycle & 1) {
+        pulse_timer_clock(&apu->pulse[0]);
+        pulse_timer_clock(&apu->pulse[1]);
+    }
+
+    apu->out_pulse[0] = pulse_output(&apu->pulse[0]);
+    apu->out_pulse[1] = pulse_output(&apu->pulse[1]);
+
     apu->cycle++;
 }
 
 void apu_cpu_write(nes_t *nes, u16 address, u8 data) {
     apu_t *apu = &nes->apu;
+    if (address <= 0x4007) {
+        pulse_write(&apu->pulse[(address >> 2) & 1], address & 0x03, data);
+        return;
+    }
     switch (address) {
+        case 0x4015:
+            length_enable(&apu->pulse[0].length, (data & 0x01) != 0);
+            length_enable(&apu->pulse[1].length, (data & 0x02) != 0);
+            break;
         case 0x4017:
             apu->frame_mode = (data & 0x80) != 0;
             apu->frame_irq_inhibit = (data & 0x40) != 0;
@@ -76,6 +216,8 @@ u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly) {
     if (address != 0x4015) return 0x00;
 
     u8 data = 0x00;
+    if (apu->pulse[0].length.counter > 0) data |= 0x01;
+    if (apu->pulse[1].length.counter > 0) data |= 0x02;
     if (apu->frame_irq) data |= 0x40;
     if (!readonly) apu->frame_irq = false;
     return data;
