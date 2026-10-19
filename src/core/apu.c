@@ -16,6 +16,11 @@ static const u8 duty_table[4][8] = {
     { 1, 1, 1, 1, 1, 1, 0, 0 }
 };
 
+static const u8 triangle_table[32] = {
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+};
+
 void apu_reset(nes_t *nes) {
     memset(&nes->apu, 0, sizeof nes->apu);
     nes->apu.pulse[0].ones_complement = true;
@@ -92,6 +97,40 @@ static void pulse_timer_clock(apu_pulse_t *p) {
 static u8 pulse_output(const apu_pulse_t *p) {
     if (p->length.counter == 0 || pulse_muted(p) || !duty_table[p->duty][p->step]) return 0;
     return envelope_output(&p->envelope);
+}
+
+static void linear_clock(apu_triangle_t *t) {
+    if (t->linear_reload) t->linear_counter = t->linear_period;
+    else if (t->linear_counter > 0) t->linear_counter--;
+    if (!t->control) t->linear_reload = false;
+}
+
+static void triangle_timer_clock(apu_triangle_t *t) {
+    if (t->timer == 0) {
+        t->timer = t->period;
+        if (t->length.counter > 0 && t->linear_counter > 0 && t->period >= 2)
+            t->step = (u8)((t->step + 1) & 0x1F);
+    } else {
+        t->timer--;
+    }
+}
+
+static void triangle_write(apu_triangle_t *t, u16 reg, u8 data) {
+    switch (reg) {
+        case 0:
+            t->control = (data & 0x80) != 0;
+            t->linear_period = data & 0x7F;
+            break;
+        case 2:
+            t->period = (u16)((t->period & 0x0700) | data);
+            break;
+        case 3:
+            t->period = (u16)((t->period & 0x00FF) | ((data & 0x07) << 8));
+            length_load(&t->length, data);
+            t->linear_reload = true;
+            break;
+        default: break;
+    }
 }
 
 static void pulse_write(apu_pulse_t *p, u16 reg, u8 data) {
@@ -171,13 +210,17 @@ void apu_clock(nes_t *nes) {
     if (apu->quarter_frame) {
         envelope_clock(&apu->pulse[0].envelope);
         envelope_clock(&apu->pulse[1].envelope);
+        linear_clock(&apu->triangle);
     }
     if (apu->half_frame) {
         for (int i = 0; i < 2; i++) {
             length_clock(&apu->pulse[i].length, apu->pulse[i].envelope.loop);
             sweep_clock(&apu->pulse[i]);
         }
+        length_clock(&apu->triangle.length, apu->triangle.control);
     }
+
+    triangle_timer_clock(&apu->triangle);
 
     if (apu->cycle & 1) {
         pulse_timer_clock(&apu->pulse[0]);
@@ -186,6 +229,7 @@ void apu_clock(nes_t *nes) {
 
     apu->out_pulse[0] = pulse_output(&apu->pulse[0]);
     apu->out_pulse[1] = pulse_output(&apu->pulse[1]);
+    apu->out_triangle = triangle_table[apu->triangle.step];
 
     apu->cycle++;
 }
@@ -196,10 +240,15 @@ void apu_cpu_write(nes_t *nes, u16 address, u8 data) {
         pulse_write(&apu->pulse[(address >> 2) & 1], address & 0x03, data);
         return;
     }
+    if (address <= 0x400B) {
+        triangle_write(&apu->triangle, address & 0x03, data);
+        return;
+    }
     switch (address) {
         case 0x4015:
             length_enable(&apu->pulse[0].length, (data & 0x01) != 0);
             length_enable(&apu->pulse[1].length, (data & 0x02) != 0);
+            length_enable(&apu->triangle.length, (data & 0x04) != 0);
             break;
         case 0x4017:
             apu->frame_mode = (data & 0x80) != 0;
@@ -218,6 +267,7 @@ u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly) {
     u8 data = 0x00;
     if (apu->pulse[0].length.counter > 0) data |= 0x01;
     if (apu->pulse[1].length.counter > 0) data |= 0x02;
+    if (apu->triangle.length.counter > 0) data |= 0x04;
     if (apu->frame_irq) data |= 0x40;
     if (!readonly) apu->frame_irq = false;
     return data;
