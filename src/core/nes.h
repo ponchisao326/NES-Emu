@@ -5,12 +5,14 @@
 #include "common/types.h"
 #include "core/cpu6502.h"
 #include "core/ppu.h"
+#include "core/apu.h"
 
 typedef struct cartridge cartridge_t;
 
 typedef struct nes {
     cpu6502_t cpu;
     ppu_t ppu;
+    apu_t apu;
     cartridge_t *cart;
 
     u8 cpu_ram[2048];

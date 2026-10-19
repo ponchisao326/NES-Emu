@@ -3,6 +3,7 @@
 //
 #include "core/nes.h"
 #include "core/bus.h"
+#include "core/apu.h"
 
 void nes_insert_cartridge(nes_t *nes, cartridge_t *cart) {
     nes->cart = cart;
@@ -11,6 +12,7 @@ void nes_insert_cartridge(nes_t *nes, cartridge_t *cart) {
 void nes_reset(nes_t *nes) {
     cpu_reset(nes);
     ppu_reset(nes);
+    apu_reset(nes);
     nes->system_clock = 0;
     nes->dma_page = 0x00;
     nes->dma_addr = 0x00;
@@ -41,12 +43,15 @@ void nes_clock(nes_t *nes) {
     ppu_clock(nes);
 
     if (nes->system_clock % 3 == 0) {
+        apu_clock(nes);
         if (nes->dma_transfer) {
             dma_clock(nes);
         } else {
             if (nes->ppu.nmi && cpu_complete(nes)) {
                 nes->ppu.nmi = false;
                 cpu_nmi(nes);
+            } else if (apu_irq(nes) && cpu_complete(nes)) {
+                cpu_irq(nes);
             }
             cpu_clock(nes);
         }

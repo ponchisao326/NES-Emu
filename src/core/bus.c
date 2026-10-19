@@ -6,6 +6,7 @@
 #include "cartridge.h"
 #include "core/nes.h"
 #include "core/ppu.h"
+#include "core/apu.h"
 
 u8 bus_cpu_read(nes_t *nes, u16 address, bool readonly) {
     u8 data = 0x00;
@@ -17,6 +18,8 @@ u8 bus_cpu_read(nes_t *nes, u16 address, bool readonly) {
         return nes->cpu_ram[address & 0x07FF];
     if (address >= 0x2000 && address <= 0x3FFF)
         return ppu_cpu_read(nes, address & 0x0007, readonly);
+    if (address == 0x4015)
+        return apu_cpu_read(nes, address, readonly);
     if (address >= 0x4016 && address <= 0x4017) {
         // Every read returns a button and shifts the registry
         data = (nes->controller_state[address & 0x0001] & 0x80) != 0;
@@ -40,6 +43,8 @@ void bus_cpu_write(nes_t *nes, u16 address, u8 data) {
         nes->dma_addr = 0x00;
         nes->dma_transfer = true;
     }
+    else if ((address >= 0x4000 && address <= 0x4013) || address == 0x4015 || address == 0x4017)
+        apu_cpu_write(nes, address, data);
     else if (address == 0x4016) {
         // Freezes button states to start reading it
         nes->controller_state[0] = nes->controller[0];
