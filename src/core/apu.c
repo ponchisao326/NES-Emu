@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "core/nes.h"
+#include "core/bus.h"
 
 static const u8 length_table[32] = {
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
@@ -25,11 +26,18 @@ static const u16 noise_table[16] = {
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
 };
 
+static const u16 dmc_table[16] = {
+    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
+};
+
 void apu_reset(nes_t *nes) {
     memset(&nes->apu, 0, sizeof nes->apu);
     nes->apu.pulse[0].ones_complement = true;
     nes->apu.noise.shift = 1;
     nes->apu.noise.period = noise_table[0];
+    nes->apu.dmc.rate = dmc_table[0];
+    nes->apu.dmc.bits_remaining = 8;
+    nes->apu.dmc.silence = true;
 }
 
 static void envelope_write(apu_envelope_t *e, u8 data) {
@@ -171,6 +179,77 @@ static void noise_write(apu_noise_t *n, u16 reg, u8 data) {
     }
 }
 
+static void dmc_restart(apu_dmc_t *d) {
+    d->current_address = d->sample_address;
+    d->bytes_remaining = d->sample_length;
+}
+
+static void dmc_reader_clock(nes_t *nes, apu_dmc_t *d) {
+    if (d->buffer_full || d->bytes_remaining == 0) return;
+
+    d->buffer = bus_cpu_read(nes, d->current_address, false);
+    d->buffer_full = true;
+    d->stall = 4;
+    d->current_address = d->current_address == 0xFFFF ? 0x8000 : (u16)(d->current_address + 1);
+
+    if (--d->bytes_remaining == 0) {
+        if (d->loop) dmc_restart(d);
+        else if (d->irq_enabled) d->irq = true;
+    }
+}
+
+static void dmc_output_clock(apu_dmc_t *d) {
+    if (!d->silence) {
+        if (d->shift & 0x01) {
+            if (d->level <= 125) d->level += 2;
+        } else if (d->level >= 2) {
+            d->level -= 2;
+        }
+    }
+    d->shift >>= 1;
+
+    if (--d->bits_remaining == 0) {
+        d->bits_remaining = 8;
+        if (d->buffer_full) {
+            d->silence = false;
+            d->shift = d->buffer;
+            d->buffer_full = false;
+        } else {
+            d->silence = true;
+        }
+    }
+}
+
+static void dmc_timer_clock(apu_dmc_t *d) {
+    if (d->timer == 0) {
+        d->timer = (u16)(d->rate - 1);
+        dmc_output_clock(d);
+    } else {
+        d->timer--;
+    }
+}
+
+static void dmc_write(apu_dmc_t *d, u16 reg, u8 data) {
+    switch (reg) {
+        case 0:
+            d->irq_enabled = (data & 0x80) != 0;
+            d->loop = (data & 0x40) != 0;
+            d->rate = dmc_table[data & 0x0F];
+            if (!d->irq_enabled) d->irq = false;
+            break;
+        case 1:
+            d->level = data & 0x7F;
+            break;
+        case 2:
+            d->sample_address = (u16)(0xC000 | (data << 6));
+            break;
+        case 3:
+            d->sample_length = (u16)((data << 4) | 1);
+            break;
+        default: break;
+    }
+}
+
 static void pulse_write(apu_pulse_t *p, u16 reg, u8 data) {
     switch (reg) {
         case 0:
@@ -267,11 +346,14 @@ void apu_clock(nes_t *nes) {
         pulse_timer_clock(&apu->pulse[1]);
     }
     noise_timer_clock(&apu->noise);
+    dmc_reader_clock(nes, &apu->dmc);
+    dmc_timer_clock(&apu->dmc);
 
     apu->out_pulse[0] = pulse_output(&apu->pulse[0]);
     apu->out_pulse[1] = pulse_output(&apu->pulse[1]);
     apu->out_triangle = triangle_table[apu->triangle.step];
     apu->out_noise = noise_output(&apu->noise);
+    apu->out_dmc = apu->dmc.level;
 
     apu->cycle++;
 }
@@ -290,12 +372,19 @@ void apu_cpu_write(nes_t *nes, u16 address, u8 data) {
         noise_write(&apu->noise, address & 0x03, data);
         return;
     }
+    if (address <= 0x4013) {
+        dmc_write(&apu->dmc, address & 0x03, data);
+        return;
+    }
     switch (address) {
         case 0x4015:
             length_enable(&apu->pulse[0].length, (data & 0x01) != 0);
             length_enable(&apu->pulse[1].length, (data & 0x02) != 0);
             length_enable(&apu->triangle.length, (data & 0x04) != 0);
             length_enable(&apu->noise.length, (data & 0x08) != 0);
+            if (!(data & 0x10)) apu->dmc.bytes_remaining = 0;
+            else if (apu->dmc.bytes_remaining == 0) dmc_restart(&apu->dmc);
+            apu->dmc.irq = false;
             break;
         case 0x4017:
             apu->frame_mode = (data & 0x80) != 0;
@@ -316,11 +405,19 @@ u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly) {
     if (apu->pulse[1].length.counter > 0) data |= 0x02;
     if (apu->triangle.length.counter > 0) data |= 0x04;
     if (apu->noise.length.counter > 0) data |= 0x08;
+    if (apu->dmc.bytes_remaining > 0) data |= 0x10;
     if (apu->frame_irq) data |= 0x40;
+    if (apu->dmc.irq) data |= 0x80;
     if (!readonly) apu->frame_irq = false;
     return data;
 }
 
 bool apu_irq(nes_t *nes) {
-    return nes->apu.frame_irq;
+    return nes->apu.frame_irq || nes->apu.dmc.irq;
+}
+
+bool apu_cpu_stalled(nes_t *nes) {
+    if (nes->apu.dmc.stall == 0) return false;
+    nes->apu.dmc.stall--;
+    return true;
 }

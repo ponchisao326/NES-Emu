@@ -46,7 +46,7 @@ void nes_clock(nes_t *nes) {
         apu_clock(nes);
         if (nes->dma_transfer) {
             dma_clock(nes);
-        } else {
+        } else if (!apu_cpu_stalled(nes)) {
             if (nes->ppu.nmi && cpu_complete(nes)) {
                 nes->ppu.nmi = false;
                 cpu_nmi(nes);

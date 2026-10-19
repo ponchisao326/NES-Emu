@@ -54,9 +54,29 @@ typedef struct {
 } apu_noise_t;
 
 typedef struct {
+    bool irq_enabled;
+    bool loop;
+    bool irq;
+    u16 rate;
+    u16 timer;
+    u8 level;
+    u16 sample_address;
+    u16 sample_length;
+    u16 current_address;
+    u16 bytes_remaining;
+    u8 buffer;
+    bool buffer_full;
+    u8 shift;
+    u8 bits_remaining;
+    bool silence;
+    u8 stall;
+} apu_dmc_t;
+
+typedef struct {
     apu_pulse_t pulse[2];
     apu_triangle_t triangle;
     apu_noise_t noise;
+    apu_dmc_t dmc;
 
     u64 cycle;
     u32 frame_step;
@@ -70,6 +90,7 @@ typedef struct {
     u8 out_pulse[2];
     u8 out_triangle;
     u8 out_noise;
+    u8 out_dmc;
 } apu_t;
 
 void apu_reset(nes_t *nes);
@@ -77,3 +98,4 @@ void apu_clock(nes_t *nes);
 void apu_cpu_write(nes_t *nes, u16 address, u8 data);
 u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly);
 bool apu_irq(nes_t *nes);
+bool apu_cpu_stalled(nes_t *nes);
