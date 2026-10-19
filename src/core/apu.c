@@ -21,9 +21,15 @@ static const u8 triangle_table[32] = {
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 };
 
+static const u16 noise_table[16] = {
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
+};
+
 void apu_reset(nes_t *nes) {
     memset(&nes->apu, 0, sizeof nes->apu);
     nes->apu.pulse[0].ones_complement = true;
+    nes->apu.noise.shift = 1;
+    nes->apu.noise.period = noise_table[0];
 }
 
 static void envelope_write(apu_envelope_t *e, u8 data) {
@@ -133,6 +139,38 @@ static void triangle_write(apu_triangle_t *t, u16 reg, u8 data) {
     }
 }
 
+static void noise_timer_clock(apu_noise_t *n) {
+    if (n->timer == 0) {
+        n->timer = (u16)(n->period - 1);
+        const u16 feedback = (n->shift ^ (n->shift >> (n->mode ? 6 : 1))) & 0x0001;
+        n->shift = (u16)((n->shift >> 1) | (feedback << 14));
+    } else {
+        n->timer--;
+    }
+}
+
+static u8 noise_output(const apu_noise_t *n) {
+    if (n->length.counter == 0 || (n->shift & 0x0001)) return 0;
+    return envelope_output(&n->envelope);
+}
+
+static void noise_write(apu_noise_t *n, u16 reg, u8 data) {
+    switch (reg) {
+        case 0:
+            envelope_write(&n->envelope, data);
+            break;
+        case 2:
+            n->mode = (data & 0x80) != 0;
+            n->period = noise_table[data & 0x0F];
+            break;
+        case 3:
+            length_load(&n->length, data);
+            n->envelope.start = true;
+            break;
+        default: break;
+    }
+}
+
 static void pulse_write(apu_pulse_t *p, u16 reg, u8 data) {
     switch (reg) {
         case 0:
@@ -210,6 +248,7 @@ void apu_clock(nes_t *nes) {
     if (apu->quarter_frame) {
         envelope_clock(&apu->pulse[0].envelope);
         envelope_clock(&apu->pulse[1].envelope);
+        envelope_clock(&apu->noise.envelope);
         linear_clock(&apu->triangle);
     }
     if (apu->half_frame) {
@@ -218,6 +257,7 @@ void apu_clock(nes_t *nes) {
             sweep_clock(&apu->pulse[i]);
         }
         length_clock(&apu->triangle.length, apu->triangle.control);
+        length_clock(&apu->noise.length, apu->noise.envelope.loop);
     }
 
     triangle_timer_clock(&apu->triangle);
@@ -226,10 +266,12 @@ void apu_clock(nes_t *nes) {
         pulse_timer_clock(&apu->pulse[0]);
         pulse_timer_clock(&apu->pulse[1]);
     }
+    noise_timer_clock(&apu->noise);
 
     apu->out_pulse[0] = pulse_output(&apu->pulse[0]);
     apu->out_pulse[1] = pulse_output(&apu->pulse[1]);
     apu->out_triangle = triangle_table[apu->triangle.step];
+    apu->out_noise = noise_output(&apu->noise);
 
     apu->cycle++;
 }
@@ -244,11 +286,16 @@ void apu_cpu_write(nes_t *nes, u16 address, u8 data) {
         triangle_write(&apu->triangle, address & 0x03, data);
         return;
     }
+    if (address <= 0x400F) {
+        noise_write(&apu->noise, address & 0x03, data);
+        return;
+    }
     switch (address) {
         case 0x4015:
             length_enable(&apu->pulse[0].length, (data & 0x01) != 0);
             length_enable(&apu->pulse[1].length, (data & 0x02) != 0);
             length_enable(&apu->triangle.length, (data & 0x04) != 0);
+            length_enable(&apu->noise.length, (data & 0x08) != 0);
             break;
         case 0x4017:
             apu->frame_mode = (data & 0x80) != 0;
@@ -268,6 +315,7 @@ u8 apu_cpu_read(nes_t *nes, u16 address, bool readonly) {
     if (apu->pulse[0].length.counter > 0) data |= 0x01;
     if (apu->pulse[1].length.counter > 0) data |= 0x02;
     if (apu->triangle.length.counter > 0) data |= 0x04;
+    if (apu->noise.length.counter > 0) data |= 0x08;
     if (apu->frame_irq) data |= 0x40;
     if (!readonly) apu->frame_irq = false;
     return data;

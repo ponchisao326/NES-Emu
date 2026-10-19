@@ -45,8 +45,18 @@ typedef struct {
 } apu_triangle_t;
 
 typedef struct {
+    apu_envelope_t envelope;
+    apu_length_t length;
+    bool mode;
+    u16 shift;
+    u16 period;
+    u16 timer;
+} apu_noise_t;
+
+typedef struct {
     apu_pulse_t pulse[2];
     apu_triangle_t triangle;
+    apu_noise_t noise;
 
     u64 cycle;
     u32 frame_step;
@@ -59,6 +69,7 @@ typedef struct {
 
     u8 out_pulse[2];
     u8 out_triangle;
+    u8 out_noise;
 } apu_t;
 
 void apu_reset(nes_t *nes);
