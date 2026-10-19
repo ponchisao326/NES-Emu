@@ -48,6 +48,12 @@ target_link_libraries(cart_info PRIVATE nes_core)
 add_executable(bank_trace tests/bank_trace.c)
 target_link_libraries(bank_trace PRIVATE nes_core)
 
+add_executable(apu_trace tests/apu_trace.c)
+target_link_libraries(apu_trace PRIVATE nes_core)
+
+add_executable(apu_wav tests/apu_wav.c)
+target_link_libraries(apu_wav PRIVATE nes_core)
+
 add_executable(cpu_debug tests/cpu_debug.c)
 target_link_libraries(cpu_debug PRIVATE nes_core)
 
