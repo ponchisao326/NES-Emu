@@ -12,15 +12,22 @@
 #include "core/bus.h"
 #include "core/cpu6502.h"
 #include "core/ppu.h"
+#include "core/apu.h"
 #include "core/cartridge.h"
 
 #define SCALE 3
 #define PANEL_W 320 // Right space to pattern visors
 #define FRAME_TIME (1.0 / 60.0)
 #define MAX_PENDING_FRAMES 4
+#define AUDIO_RATE 48000
+#define AUDIO_GAIN 2.0f
+#define AUDIO_QUEUE_FRAMES 3
 
 static nes_t nes;
 static cartridge_t *cart;
+static SDL_AudioDeviceID audio;
+static bool audio_muted = false;
+static float audio_buffer[APU_BUFFER_SIZE];
 
 static void blit_screen(SDL_Texture *tex) {
     u8 pixels[PPU_SCREEN_H][PPU_SCREEN_W][3];
@@ -66,6 +73,39 @@ static void step_frame(void) {
     nes.ppu.frame_complete = false;
 }
 
+static void run_frame(void) {
+    do { nes_clock(&nes); } while (!nes.ppu.frame_complete);
+    nes.ppu.frame_complete = false;
+}
+
+static void open_audio(void) {
+    SDL_AudioSpec want, have;
+    SDL_zero(want);
+    want.freq = AUDIO_RATE;
+    want.format = AUDIO_F32SYS;
+    want.channels = 1;
+    want.samples = 512;
+    audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (!audio) {
+        fprintf(stderr, "SDL audio: %s\n", SDL_GetError());
+        return;
+    }
+    apu_set_sample_rate(&nes, (u32)have.freq);
+    SDL_PauseAudioDevice(audio, 0);
+}
+
+static void queue_audio(void) {
+    const u32 n = apu_take_samples(&nes, audio_buffer, APU_BUFFER_SIZE);
+    if (!audio) return;
+    for (u32 i = 0; i < n; i++) audio_buffer[i] = audio_muted ? 0.0f : audio_buffer[i] * AUDIO_GAIN;
+    SDL_QueueAudio(audio, audio_buffer, n * (u32)sizeof(float));
+}
+
+static void drain_audio(void) {
+    apu_take_samples(&nes, audio_buffer, APU_BUFFER_SIZE);
+    if (audio) SDL_ClearQueuedAudio(audio);
+}
+
 static void dump_oam(void) {
     for (int i = 0; i < 64; i++) {
         const oam_entry_t *s = &nes.ppu.oam[i];
@@ -91,7 +131,7 @@ int main(int argc, char **argv) {
     nes_reset(&nes);
 
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         cartridge_free(cart);
         return 1;
@@ -112,6 +152,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    open_audio();
 
     SDL_Texture *screen_tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24,
                                                 SDL_TEXTUREACCESS_STREAMING,
@@ -143,6 +184,10 @@ int main(int argc, char **argv) {
                     case SDLK_f: if (!emulating) step_frame(); break;
                     case SDLK_p: selected_palette = (selected_palette + 1) & 0x07; break;
                     case SDLK_o: dump_oam(); break;
+                    case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4: case SDLK_5:
+                        nes.apu.mute ^= (u8)(1 << (e.key.keysym.sym - SDLK_1));
+                        break;
+                    case SDLK_m: audio_muted = !audio_muted; break;
                     default: break;
                 }
             }
@@ -164,17 +209,24 @@ int main(int argc, char **argv) {
         const double elapsed = (double)(now - last) / (double)SDL_GetPerformanceFrequency();
         last = now;
 
-        if (emulating) {
+        if (emulating && audio) {
+            const Uint32 target = (Uint32)(AUDIO_RATE / 60 * AUDIO_QUEUE_FRAMES * sizeof(float));
+            for (int i = 0; i < MAX_PENDING_FRAMES && SDL_GetQueuedAudioSize(audio) < target; i++) {
+                run_frame();
+                queue_audio();
+            }
+        } else if (emulating) {
             residual += elapsed;
             if (residual > MAX_PENDING_FRAMES * FRAME_TIME) residual = MAX_PENDING_FRAMES * FRAME_TIME;
 
             while (residual >= FRAME_TIME) {
                 residual -= FRAME_TIME;
-                do { nes_clock(&nes); } while (!nes.ppu.frame_complete);
-                nes.ppu.frame_complete = false;
+                run_frame();
+                queue_audio();
             }
         } else {
             residual = 0.0;
+            drain_audio();
         }
 
         ppu_render_pattern_table(&nes, 0, selected_palette);
@@ -198,15 +250,20 @@ int main(int argc, char **argv) {
 
         SDL_RenderPresent(ren);
 
-        char title[160];
+        char channels[6];
+        for (int i = 0; i < 5; i++) channels[i] = (nes.apu.mute & (1 << i)) ? '-' : (char)('1' + i);
+        channels[5] = '\0';
+
+        char title[192];
         snprintf(title, sizeof title,
-                 "Nes_Emu  |  %s  |  PC:%04X A:%02X X:%02X Y:%02X SP:%02X  pal:%u",
+                 "Nes_Emu  |  %s  |  PC:%04X A:%02X X:%02X Y:%02X SP:%02X  pal:%u  snd:%s%s",
                  emulating ? "RUN" : "PAUSE",
                  nes.cpu.pc, nes.cpu.a, nes.cpu.x, nes.cpu.y,
-                 nes.cpu.stkp, selected_palette);
+                 nes.cpu.stkp, selected_palette, channels, audio_muted ? " M" : "");
         SDL_SetWindowTitle(win, title);
     }
 
+    if (audio) SDL_CloseAudioDevice(audio);
     SDL_DestroyTexture(pat_tex[0]);
     SDL_DestroyTexture(pat_tex[1]);
     SDL_DestroyTexture(screen_tex);
