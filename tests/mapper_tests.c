@@ -49,6 +49,10 @@ static void mmc1_write(cartridge_t *cart, u16 address, u8 value) {
         cart_cpu_write(cart, address, (u8)((value >> bit) & 0x01));
 }
 
+static void mmc3_write(cartridge_t *cart, u16 address, u8 value) {
+    cart_cpu_write(cart, address, value);
+}
+
 static void test_mmc1_power_on(void) {
     printf("\n== MMC1 power on ==\n");
     cartridge_t *cart = make_cart(8, 2, 0x4000, 0x1000);
@@ -148,6 +152,97 @@ static void test_mmc1_surom(void) {
     cartridge_free(cart);
 }
 
+static void test_mmc3_prg(void) {
+    printf("\n== MMC3 PRG banks ==\n");
+    cartridge_t *cart = make_cart(8, 8, 0x2000, 0x0400);
+    mapper004_init(&cart->mapper, cart->prg_banks, cart->chr_banks);
+
+    mmc3_write(cart, 0x8000, 0x06);
+    mmc3_write(cart, 0x8001, 0x03);
+    mmc3_write(cart, 0x8000, 0x07);
+    mmc3_write(cart, 0x8001, 0x09);
+    expect("mode 0: $8000 is R6", cpu_peek(cart, 0x8000), 3);
+    expect("mode 0: $A000 is R7", cpu_peek(cart, 0xA000), 9);
+    expect("mode 0: $C000 is the second to last", cpu_peek(cart, 0xC000), 14);
+    expect("$E000 is always the last bank", cpu_peek(cart, 0xE000), 15);
+
+    mmc3_write(cart, 0x8000, 0x46);
+    expect("mode 1: $8000 is the second to last", cpu_peek(cart, 0x8000), 14);
+    expect("mode 1: $C000 is R6", cpu_peek(cart, 0xC000), 3);
+    cartridge_free(cart);
+}
+
+static void test_mmc3_chr(void) {
+    printf("\n== MMC3 CHR banks ==\n");
+    cartridge_t *cart = make_cart(8, 8, 0x2000, 0x0400);
+    mapper004_init(&cart->mapper, cart->prg_banks, cart->chr_banks);
+
+    const u8 values[6] = { 0x11, 0x20, 0x30, 0x31, 0x32, 0x33 };
+    for (u8 r = 0; r < 6; r++) {
+        mmc3_write(cart, 0x8000, r);
+        mmc3_write(cart, 0x8001, values[r]);
+    }
+    expect("R0 is 2 KB and ignores bit 0", ppu_peek(cart, 0x0000), 0x10);
+    expect("second half of R0", ppu_peek(cart, 0x0400), 0x11);
+    expect("R1 at $0800", ppu_peek(cart, 0x0800), 0x20);
+    expect("R2 at $1000", ppu_peek(cart, 0x1000), 0x30);
+    expect("R5 at $1C00", ppu_peek(cart, 0x1C00), 0x33);
+
+    mmc3_write(cart, 0x8000, 0x80);
+    expect("inverted: R2 moves to $0000", ppu_peek(cart, 0x0000), 0x30);
+    expect("inverted: R0 moves to $1000", ppu_peek(cart, 0x1000), 0x10);
+
+    mmc3_write(cart, 0xA000, 0x01);
+    expect("$A000 bit 0 set means horizontal", cart_mirror(cart), MIRROR_HORIZONTAL);
+    mmc3_write(cart, 0xA000, 0x00);
+    expect("$A000 bit 0 clear means vertical", cart_mirror(cart), MIRROR_VERTICAL);
+    cartridge_free(cart);
+}
+
+static void test_mmc3_ram_protect(void) {
+    printf("\n== MMC3 PRG RAM protect ==\n");
+    cartridge_t *cart = make_cart(8, 8, 0x2000, 0x0400);
+    mapper004_init(&cart->mapper, cart->prg_banks, cart->chr_banks);
+
+    cart_cpu_write(cart, 0x7FFF, 0x24);
+    mmc3_write(cart, 0xA001, 0xC0);
+    expect("write protect refuses the write", cart_cpu_write(cart, 0x7FFF, 0x99), false);
+    expect("but the RAM still reads", cpu_peek(cart, 0x7FFF), 0x24);
+    mmc3_write(cart, 0xA001, 0x00);
+    expect("disabled RAM does not answer", cart_cpu_read(cart, 0x7FFF, &(u8){0}), false);
+    cartridge_free(cart);
+}
+
+static int scanlines_until_irq(cartridge_t *cart, int limit) {
+    for (int line = 1; line <= limit; line++) {
+        cart_scanline(cart);
+        if (cart_irq(cart)) return line;
+    }
+    return 0;
+}
+
+static void test_mmc3_irq(void) {
+    printf("\n== MMC3 scanline IRQ ==\n");
+    cartridge_t *cart = make_cart(8, 8, 0x2000, 0x0400);
+    mapper004_init(&cart->mapper, cart->prg_banks, cart->chr_banks);
+
+    mmc3_write(cart, 0xC000, 20);
+    mmc3_write(cart, 0xC001, 0x00);
+    mmc3_write(cart, 0xE001, 0x00);
+    expect("latch 20 fires on the 21st scanline", scanlines_until_irq(cart, 100), 21);
+    expect("the line stays up until acknowledged", cart_irq(cart), true);
+
+    mmc3_write(cart, 0xE000, 0x00);
+    expect("$E000 acknowledges", cart_irq(cart), false);
+    expect("disabled counter never fires", scanlines_until_irq(cart, 100), 0);
+
+    mmc3_write(cart, 0xE001, 0x00);
+    mmc3_write(cart, 0xC000, 5);
+    mmc3_write(cart, 0xC001, 0x00);
+    expect("reload takes the new latch", scanlines_until_irq(cart, 100), 6);
+    cartridge_free(cart);
+}
+
 int main(void) {
     test_mmc1_power_on();
     test_mmc1_serial_port();
@@ -155,6 +250,10 @@ int main(void) {
     test_mmc1_chr_and_mirroring();
     test_mmc1_ram_disable();
     test_mmc1_surom();
+    test_mmc3_prg();
+    test_mmc3_chr();
+    test_mmc3_ram_protect();
+    test_mmc3_irq();
 
     printf("\n%s (%d failing)\n", failures ? "INCOMPLETE" : "ALL PASS", failures);
     return failures ? 1 : 0;

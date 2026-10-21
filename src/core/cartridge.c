@@ -52,6 +52,7 @@ cartridge_t *cartridge_load(const char *path) {
             break;
         case 1: mapped = mapper001_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
         case 2: mapped = mapper002_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
+        case 4: mapped = mapper004_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
         default: break;
     }
 
