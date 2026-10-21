@@ -27,6 +27,7 @@ cartridge_t *cartridge_load(const char *path) {
     cart->chr_banks = header[5];
     cart->mapper_id = mapper_hi | (header[6] >> 4);
     cart->mirror = (header[6] & 0x01) ? MIRROR_VERTICAL : MIRROR_HORIZONTAL;
+    cart->battery = (header[6] & 0x02) != 0;
 
     if (header[6] & 0x04) fseek(f, 512, SEEK_CUR); // Trainer, gets discarded
 
@@ -43,17 +44,19 @@ cartridge_t *cartridge_load(const char *path) {
 
     fclose(f);
 
+    bool mapped = false;
     switch (cart->mapper_id) {
-        case 0: mapper000_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
-        case 2:
-            if (!mapper002_init(&cart->mapper, cart->prg_banks, cart->chr_banks)) {
-                cartridge_free(cart);
-                return NULL;
-            }
+        case 0:
+            mapper000_init(&cart->mapper, cart->prg_banks, cart->chr_banks);
+            mapped = true;
             break;
-        default:
-            cartridge_free(cart);
-            return NULL; // Not supported mapper
+        case 2: mapped = mapper002_init(&cart->mapper, cart->prg_banks, cart->chr_banks); break;
+        default: break;
+    }
+
+    if (!mapped) {
+        cartridge_free(cart);
+        return NULL;
     }
 
     return cart;
@@ -72,8 +75,17 @@ void cartridge_free(cartridge_t *cart) {
     free(cart);
 }
 
+static bool in_prg_ram(u16 address) {
+    return address >= 0x6000 && address <= 0x7FFF;
+}
+
 bool cart_cpu_read(cartridge_t *cart, u16 address, u8 *data) {
     if (!cart) return false;
+    if (in_prg_ram(address)) {
+        if (!cart->mapper.prg_ram_enabled) return false;
+        *data = cart->prg_ram[address & 0x1FFF];
+        return true;
+    }
     u32 mapped = 0;
     if (cart->mapper.cpu_map_read(&cart->mapper, address, &mapped)) {
         *data = cart->prg_rom[mapped];
@@ -84,6 +96,11 @@ bool cart_cpu_read(cartridge_t *cart, u16 address, u8 *data) {
 
 bool cart_cpu_write(cartridge_t *cart, u16 address, u8 data) {
     if (!cart) return false;
+    if (in_prg_ram(address)) {
+        if (!cart->mapper.prg_ram_writable) return false;
+        cart->prg_ram[address & 0x1FFF] = data;
+        return true;
+    }
     u32 mapped = 0;
     if (cart->mapper.cpu_map_write(&cart->mapper, address, &mapped, data)) {
         cart->prg_rom[mapped] = data;
@@ -110,4 +127,33 @@ bool cart_ppu_write(cartridge_t *cart, u16 address, u8 data) {
         return true;
     }
     return false;
+}
+
+mirror_t cart_mirror(const cartridge_t *cart) {
+    if (!cart) return MIRROR_HORIZONTAL;
+    return cart->mapper.drives_mirroring ? cart->mapper.mirror : cart->mirror;
+}
+
+bool cart_irq(const cartridge_t *cart) {
+    return cart && cart->mapper.irq;
+}
+
+void cart_scanline(cartridge_t *cart) {
+    if (cart && cart->mapper.scanline) cart->mapper.scanline(&cart->mapper);
+}
+
+bool cart_load_ram(cartridge_t *cart, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    const bool complete = fread(cart->prg_ram, 1, sizeof cart->prg_ram, f) == sizeof cart->prg_ram;
+    fclose(f);
+    return complete;
+}
+
+bool cart_save_ram(const cartridge_t *cart, const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    const bool complete = fwrite(cart->prg_ram, 1, sizeof cart->prg_ram, f) == sizeof cart->prg_ram;
+    fclose(f);
+    return complete;
 }

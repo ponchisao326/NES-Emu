@@ -4,6 +4,7 @@
 #include "core/nes.h"
 #include "core/bus.h"
 #include "core/apu.h"
+#include "core/cartridge.h"
 
 void nes_insert_cartridge(nes_t *nes, cartridge_t *cart) {
     nes->cart = cart;
@@ -50,7 +51,7 @@ void nes_clock(nes_t *nes) {
             if (nes->ppu.nmi && cpu_complete(nes)) {
                 nes->ppu.nmi = false;
                 cpu_nmi(nes);
-            } else if (apu_irq(nes) && cpu_complete(nes)) {
+            } else if ((apu_irq(nes) || cart_irq(nes->cart)) && cpu_complete(nes)) {
                 cpu_irq(nes);
             }
             cpu_clock(nes);

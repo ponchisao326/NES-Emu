@@ -41,8 +41,13 @@ void mapper000_init(mapper_t *m, u8 prg_banks, u8 chr_banks) {
     m->cpu_map_write = m000_cpu_map_write;
     m->ppu_map_read = m000_ppu_map_read;
     m->ppu_map_write = m000_ppu_map_write;
+    m->scanline = NULL;
 
     m->prg_banks = prg_banks;
     m->chr_banks = chr_banks;
+    m->drives_mirroring = false;
+    m->prg_ram_enabled = false;
+    m->prg_ram_writable = false;
+    m->irq = false;
     m->state = NULL; // NROM doesn't have any state
 }

@@ -114,6 +114,14 @@ static void dump_oam(void) {
     printf("\n");
 }
 
+static void save_path_for(const char *rom, char *out, size_t size) {
+    snprintf(out, size, "%s", rom);
+    char *dot = strrchr(out, '.');
+    const char *slash = strrchr(out, '/');
+    if (dot && (!slash || dot > slash)) *dot = '\0';
+    strncat(out, ".sav", size - strlen(out) - 1);
+}
+
 int main(int argc, char **argv) {
     const char *rom = (argc > 1) ? argv[1] : "roms/Donkey-Kong.nes";
 
@@ -126,6 +134,11 @@ int main(int argc, char **argv) {
     printf("  mapper %u, PRG %u x 16KB, CHR %u x 8KB, mirror %s\n",
            cart->mapper_id, cart->prg_banks, cart->chr_banks,
            cart->mirror == MIRROR_VERTICAL ? "vertical" : "horizontal");
+
+    char save_path[1024];
+    save_path_for(rom, save_path, sizeof save_path);
+    if (cart->battery && cart_load_ram(cart, save_path))
+        printf("  save loaded from %s\n", save_path);
 
     nes_insert_cartridge(&nes, cart);
     nes_reset(&nes);
@@ -270,6 +283,9 @@ int main(int argc, char **argv) {
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     SDL_Quit();
+
+    if (cart->battery && !cart_save_ram(cart, save_path))
+        fprintf(stderr, "Could not write the save to %s\n", save_path);
 
     cartridge_free(cart);
     return 0;

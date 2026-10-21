@@ -123,7 +123,7 @@ void ppu_cpu_write(nes_t *nes, u16 address, u8 data) {
 }
 
 static u8 *nametable_cell(nes_t *nes, u16 address) {
-    const mirror_t mirror = nes->cart ? nes->cart->mirror : MIRROR_HORIZONTAL;
+    const mirror_t mirror = cart_mirror(nes->cart);
     u8 table = 0;
 
     address &= 0x0FFF;
@@ -287,6 +287,11 @@ static void load_sprite_shifters(nes_t *nes) {
     }
 }
 
+static s16 pattern_switch_cycle(const nes_t *nes) {
+    const bool sprites_low = !nes->ppu.ctrl.pattern_sprite && !nes->ppu.ctrl.sprite_size;
+    return nes->ppu.ctrl.pattern_background && sprites_low ? 324 : 260;
+}
+
 void ppu_clock(nes_t *nes) {
     if (nes->ppu.scanline >= -1 && nes->ppu.scanline < 240) {
         if (nes->ppu.scanline == 0 && nes->ppu.cycle == 0) {
@@ -382,6 +387,11 @@ void ppu_clock(nes_t *nes) {
         }
 
         if (nes->ppu.cycle == 340) load_sprite_shifters(nes);
+
+        if (nes->ppu.cycle == pattern_switch_cycle(nes)
+            && (nes->ppu.mask.render_background || nes->ppu.mask.render_sprites)) {
+            cart_scanline(nes->cart);
+        }
     }
 
     if (nes->ppu.scanline == 241 && nes->ppu.cycle == 1) {
