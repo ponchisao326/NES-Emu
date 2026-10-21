@@ -60,7 +60,11 @@ target_link_libraries(cpu_debug PRIVATE nes_core)
 add_executable(cpu_tests tests/cpu_tests.c)
 target_link_libraries(cpu_tests PRIVATE nes_core)
 
+add_executable(mapper_tests tests/mapper_tests.c)
+target_link_libraries(mapper_tests PRIVATE nes_core)
+
 enable_testing()
 add_test(NAME nestest COMMAND nestest_runner "${CMAKE_SOURCE_DIR}/roms/nestest.nes")
 set_tests_properties(nestest PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME cpu     COMMAND cpu_tests)
+add_test(NAME mappers COMMAND mapper_tests)

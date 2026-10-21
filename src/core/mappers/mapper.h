@@ -33,5 +33,6 @@ struct mapper {
 };
 
 void mapper000_init(mapper_t *m, u8 prg_banks, u8 chr_banks);
+bool mapper001_init(mapper_t *m, u8 prg_banks, u8 chr_banks);
 bool mapper002_init(mapper_t *m, u8 prg_banks, u8 chr_banks);
 bool mapper004_init(mapper_t *m, u8 prg_banks, u8 chr_banks);
